@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FM8/R ANOTHER GROOVEBOX</title>
+
+    <!-- Social Media Preview Meta Tags -->
+    <meta property="og:title" content="FM8/R Jam Session" />
+    <meta property="og:description" content="Listen to a track made with FM8/R, an advanced 8-track rhythm synthesizer." />
+    <meta property="og:image" content="./social-preview.png" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="FM8/R Jam Session" />
+    <meta name="twitter:description" content="Listen to a track made with FM8/R, an advanced 8-track rhythm synthesizer." />
+    <meta name="twitter:image" content="./social-preview.png" />
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        font-size: 14px; /* Base font size for better scaling */
+      }
+
+      /* --- THEME DEFINITIONS MOVED TO themes.ts --- */
+      /* Default Theme properties as fallback */
+      body {
+        --bg-chassis: #101114;
+        --bg-panel: #1A1C20;
+        --bg-panel-dark: #000000;
+        --bg-control: #1C1F23;
+        --border-color: #2A2E33;
+        --border-color-light: #484D5C;
+        --border-color-darker: #000;
+        --accent-color: #FFB800; /* Amber */
+        --accent-color-active: #FFD040;
+        --accent-rgb: 255, 184, 0;
+        --plock-color: var(--accent-color);
+        --text-light: #DCE0E6;
+        --text-dark: #111111;
+        --text-muted: #6A7185;
+        --text-screen: #E0E6F0;
+        --text-screen-glow: 0 0 5px rgba(224, 230, 240, 0.2);
+        --color-mute: #E53935;
+        --color-solo: var(--accent-color);
+        --font-main: 'Roboto', sans-serif;
+        --font-mono: 'Roboto Mono', monospace;
+        --shadow-deep: rgba(0,0,0,0.6);
+        --highlight-soft: rgba(255,255,255,0.1);
+        
+        /* New Piano Roll vars */
+        --pianoroll-white-key: #FFFFFF;
+        --pianoroll-white-key-gradient: #D1D1D1;
+        --pianoroll-black-key: #2D2D2D;
+        --pianoroll-black-key-gradient: #1A1A1A;
+        --pianoroll-white-key-text: #374151; /* gray-700 */
+        --pianoroll-black-key-text: #9ca3af; /* gray-400 */
+        --pianoroll-white-key-border: #9ca3af; /* gray-400 */
+        --pianoroll-black-key-border: #4b5563; /* gray-600 */
+        --pianoroll-grid-bar: rgba(0,0,0,0.2);
+        --pianoroll-grid-beat: rgba(0,0,0,0.1);
+        --pianoroll-grid-step: rgba(0,0,0,0.05);
+        --pianoroll-scale-highlight-dark: rgba(0,0,0,0.1);
+        --pianoroll-scale-highlight-light: rgba(0,0,0,0.05);
+
+        /* New Sequencer Step vars */
+        --sequencer-step-light: #1F2228;
+        --sequencer-step-dark: #16181C;
+      }
+
+      /* --- GLOBAL STYLES --- */
+
+      body {
+        font-family: var(--font-main);
+        background-color: var(--bg-chassis);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+        color: var(--text-light);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        user-select: none;
+        -webkit-user-select: none;
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+      .font-display {
+        font-family: var(--font-main);
+      }
+      .font-mono {
+        font-family: var(--font-mono);
+        text-shadow: var(--text-screen-glow);
+      }
+      
+      .grid-cols-16 {
+        grid-template-columns: repeat(16, minmax(0, 1fr));
+      }
+      .grid-cols-64 {
+        grid-template-columns: repeat(64, minmax(0, 1fr));
+      }
+      
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+      
+      .pianoroll-grid-pattern {
+          background-image:
+              /* Vertical lines */
+              linear-gradient(to right, var(--pianoroll-grid-bar) 1px, transparent 1px),   /* Bar lines */
+              linear-gradient(to right, var(--pianoroll-grid-beat) 1px, transparent 1px),  /* Beat lines */
+              linear-gradient(to right, var(--pianoroll-grid-step) 1px, transparent 1px),  /* Step lines */
+              /* Horizontal lines */
+              linear-gradient(to bottom, var(--pianoroll-grid-bar) 1px, transparent 1px),  /* Octave lines */
+              linear-gradient(to bottom, var(--pianoroll-grid-step) 1px, transparent 1px);   /* Note lines */
+          background-size: 
+              calc(var(--grid-step) * 16) 100%, /* Bar lines every 16 steps */
+              calc(var(--grid-step) * 4) 100%,  /* Beat lines every 4 steps */
+              var(--grid-step) 100%,           /* Step lines every step */
+              100% calc(var(--grid-key) * 12),  /* Octave lines */
+              100% var(--grid-key);             /* Note lines */
+      }
+
+      @keyframes pulse-glow {
+        0%, 100% {
+          border-color: var(--accent-color);
+          box-shadow: 0 0 2px var(--accent-color);
+        }
+        50% {
+          border-color: var(--accent-color-active);
+          box-shadow: 0 0 10px var(--accent-color-active);
+        }
+      }
+
+      .animate-pulse-glow {
+        animation: pulse-glow 1.5s infinite ease-in-out;
+      }
+
+      @keyframes heartbeat-glow-knob {
+          from {
+              box-shadow: inset 0 2px 4px var(--shadow-deep), 0 1px 1px var(--highlight-soft), 0 0 12px 2px var(--accent-color);
+          }
+          to {
+              box-shadow: inset 0 2px 4px var(--shadow-deep), 0 1px 1px var(--highlight-soft);
+          }
+      }
+      .animate-heartbeat {
+          animation: heartbeat-glow-knob 0.2s ease-out;
+      }
+      @keyframes selected-track-pulse {
+        0%, 100% {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 8px var(--accent-color);
+        }
+        50% {
+            border-color: var(--accent-color-active);
+            box-shadow: 0 0 4px var(--accent-color-active);
+        }
+      }
+
+      .selected-track-glow {
+          animation: selected-track-pulse 2s infinite ease-in-out;
+      }
+       @keyframes panic-flash {
+        0%, 100% { background-color: #b91c1c; border-color: #991b1b; }
+        50% { background-color: #fca5a5; border-color: #ef4444; }
+      }
+      .animate-panic-flash {
+        animation: panic-flash 0.2s ease-in-out;
+      }
+      @keyframes master-volume-pulse {
+        0%, 100% {
+          box-shadow: inset 0 2px 4px var(--shadow-deep), 0 1px 1px var(--highlight-soft), 0 0 8px 2px var(--pulse-color, var(--accent-color));
+        }
+        50% {
+          box-shadow: inset 0 2px 4px var(--shadow-deep), 0 1px 1px var(--highlight-soft), 0 0 12px 3px var(--pulse-color, var(--accent-color));
+        }
+      }
+      .animate-master-pulse {
+        animation: master-volume-pulse 2.5s infinite ease-in-out;
+      }
+      
+      @keyframes play-button-pulse {
+        0%, 100% {
+          background-color: var(--bg-control);
+          box-shadow: 0 0 3px hsla(145, 84%, 30%, 0.8), inset 0 0 2px hsla(145, 63%, 42%, 0.5);
+          border-color: var(--border-color);
+        }
+        50% {
+          background-color: hsla(145, 63%, 42%, 1); /* A nice green */
+          box-shadow: 0 0 12px hsla(145, 63%, 42%, 1), inset 0 0 5px hsla(145, 50%, 60%, 1);
+          border-color: hsla(145, 50%, 60%, 1);
+        }
+      }
+      .animate-play-pulse {
+        animation: play-button-pulse 1.8s infinite ease-in-out;
+      }
+
+      @keyframes fade-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+      }
+      @keyframes slide-up {
+          from { transform: translateY(20px) scale(0.98); opacity: 0; }
+          to { transform: translateY(0) scale(1); opacity: 1; }
+      }
+      
+      .animate-fade-in {
+          animation: fade-in 0.2s ease-out forwards;
+      }
+      .animate-slide-up {
+          animation: slide-up 0.3s ease-out forwards;
+      }
+
+      /* New animations for Welcome Screen */
+      @keyframes float {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-8px); }
+      }
+      @keyframes logo-draw {
+        to { stroke-dashoffset: 0; }
+      }
+      @keyframes text-glow-in {
+          from { opacity: 0; transform: translateY(10px); text-shadow: 0 0 2px var(--accent-color); }
+          to { opacity: 1; transform: translateY(0); text-shadow: 0 0 15px var(--accent-color), 0 0 25px var(--accent-color); }
+      }
+      @keyframes start-button-throb {
+          0%, 100% {
+              transform: scale(1);
+              box-shadow: 0 0 15px rgba(var(--accent-rgb), 0.7), 0 4px 20px rgba(0,0,0,0.4);
+              border-color: var(--accent-color-active);
+          }
+          50% {
+              transform: scale(1.05);
+              box-shadow: 0 0 30px rgba(var(--accent-rgb), 1), 0 6px 25px rgba(0,0,0,0.5);
+              border-color: #fff;
+          }
+      }
+       @keyframes logo-breathe {
+        0%, 100% { filter: url(#logoGlow); }
+        50% { filter: url(#logoGlowHover); }
+      }
+
+      /* Playhead Glow Animation - More Performant */
+      @keyframes playhead-fade-out {
+        from { opacity: 1; }
+        to { opacity: 0; }
+      }
+      .playhead-indicator {
+        position: absolute;
+        inset: -2px; /* A bit larger to allow for glow bleed */
+        border-radius: 8px; /* md is 6px, so this is slightly larger */
+        pointer-events: none;
+        box-shadow: inset 0 0 10px 3px rgba(var(--accent-rgb), 0.7), 0 0 5px 1px rgba(var(--accent-rgb), 0.4);
+        animation: playhead-fade-out 0.4s ease-out forwards;
+      }
+      
+      /* Knob Interaction Glow */
+      .knob-container::after {
+          content: '';
+          position: absolute;
+          z-index: -1; /* Behind the knob, on top of the panel */
+          inset: -8px;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(var(--accent-rgb), 0.6) 30%, transparent 70%);
+          opacity: 0;
+          transition: opacity 0.2s ease-in-out;
+          pointer-events: none;
+      }
+      .knob-container.interacting::after {
+          opacity: 1;
+      }
+
+      /* New animations for Share Jam Modal & Welcome Screen */
+      @keyframes bg-pan {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+      }
+      @keyframes hud-scan {
+        0% { transform: translateY(-100%); opacity: 0.3; }
+        50% { opacity: 0.7; }
+        100% { transform: translateY(100%); opacity: 0.3; }
+      }
+      @keyframes progress-gradient {
+        0% { background-position: -100% 0; }
+        100% { background-position: 100% 0; }
+      }
+      @keyframes modal-glow {
+        0%, 100% {
+          box-shadow: 0 0 25px 5px rgba(168, 85, 247, 0.3), 0 0 45px 5px rgba(0, 0, 0, 0.6);
+          border-color: rgba(168, 85, 247, 0.4);
+        }
+        50% {
+          box-shadow: 0 0 40px 10px rgba(168, 85, 247, 0.5), 0 0 45px 5px rgba(0, 0, 0, 0.6);
+          border-color: rgba(168, 85, 247, 0.7);
+        }
+      }
+
+
+      /* Responsive Adjustments */
+      @media (max-width: 1279px) { /* large tablets */
+        :root { font-size: 13px; }
+      }
+      @media (max-width: 767px) { /* mobile */
+        :root { font-size: 12px; }
+        /* Hide scrollbars for a more native feel on mobile */
+        body::-webkit-scrollbar { display: none; }
+        body { -ms-overflow-style: none; scrollbar-width: none; }
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.1.1",
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.22.0",
+    "zustand": "https://aistudiocdn.com/zustand@^4.5.4",
+    "zustand/middleware": "https://aistudiocdn.com/zustand@^4.5.4/middleware",
+    "immer": "https://aistudiocdn.com/immer@^10.1.1",
+    "zustand/": "https://aistudiocdn.com/zustand@^4.5.4/"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
+  </body>
+</html>
