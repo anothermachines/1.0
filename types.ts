@@ -314,7 +314,7 @@ export interface CompressorParams {
 }
 
 export interface CharacterParams {
-    mode: 'saturate' | 'overdrive' | 'bitcrush' | 'fold';
+    mode: 'tape' | 'saturate' | 'overdrive' | 'bitcrush' | 'fold';
     amount: number;
     mix: number;
 }

@@ -50,10 +50,11 @@ const EffectsRack: React.FC = () => {
           <Knob label="RESO" value={masterFilter.resonance} min={0.1} max={30} step={0.1} onChange={v => onChange('masterFilter', 'resonance', v)} mapInfo={{ path: 'globalFx.masterFilter.resonance', label: 'Master Reso' }} disabled={isSpectator} onDisabledClick={triggerViewerModeInteraction}/>
         </Section>
         
-        <Section title="CHARACTER" className="grid-cols-2 md:grid-cols-3">
+        <Section title="MASTER DRIVE" className="grid-cols-2 md:grid-cols-3">
             <Selector label="MODE" 
               value={character.mode} 
               options={[
+                  {value: 'tape', label: 'TAPE'},
                   {value: 'saturate', label: 'SAT'}, 
                   {value: 'overdrive', label: 'OD'}, 
                   {value: 'bitcrush', label: 'CRUSH'},

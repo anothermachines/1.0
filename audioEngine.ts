@@ -360,6 +360,7 @@ export class AudioEngine {
         const { mode, amount, mix } = params;
         let curve;
         switch(mode) {
+            case 'tape': curve = this.makeDistortionCurve(amount / 5, mix); break;
             case 'saturate': curve = this.makeDistortionCurve(amount / 4, mix); break;
             case 'overdrive': curve = this.makeDistortionCurve(amount, mix); break;
             case 'bitcrush': curve = this.makeBitcrusherCurve(16 - (amount / 100) * 14, mix); break;
