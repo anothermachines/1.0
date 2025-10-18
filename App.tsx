@@ -22,6 +22,7 @@ import { APPEARANCE_THEMES, ACCENT_THEMES, applyTheme } from './themes';
 import { shallow } from 'zustand/shallow';
 import LicenseModal from './components/LicenseModal';
 import ShareJamModal from './components/ShareJamModal';
+import FullscreenPrompt from './components/FullscreenPrompt';
 
 const AppLogo: React.FC = () => (
     <div className="flex items-center group">
@@ -232,7 +233,7 @@ const AppContent: React.FC = () => {
         isExporting, exportProgress, isShareJamOpen, toggleShareJamModal,
         setMidiOutputs, selectedPLockStep, copyStep, pasteStep, copyPattern, pastePattern,
         audioEngineInstanceId, setAudioOutputDevices, isViewerMode, toggleLicenseModal,
-        isLicenseModalOpen
+        isLicenseModalOpen, showFullscreenPrompt
     } = useStore(state => ({
         init: state.init,
         mainView: state.mainView,
@@ -270,6 +271,7 @@ const AppContent: React.FC = () => {
         isViewerMode: state.isViewerMode,
         toggleLicenseModal: state.toggleLicenseModal,
         isLicenseModalOpen: state.isLicenseModalOpen,
+        showFullscreenPrompt: state.showFullscreenPrompt,
     }), shallow);
     
     const midiContext = React.useContext(MidiContext);
@@ -373,6 +375,7 @@ const AppContent: React.FC = () => {
         {isLicenseModalOpen && <LicenseModal />}
         {isShareJamOpen && <ShareJamModal />}
         {isManualOpen && <Manual />}
+        {showFullscreenPrompt && <FullscreenPrompt />}
         
         <NotificationSystem />
 

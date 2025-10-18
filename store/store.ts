@@ -94,6 +94,7 @@ interface AppState {
     isSpectator: boolean;
     lastNotificationTime: number;
     isShareJamOpen: boolean;
+    showFullscreenPrompt: boolean;
 }
 
 interface AppActions {
@@ -195,6 +196,7 @@ interface AppActions {
     triggerViewerModeInteraction: () => void;
     toggleShareJamModal: (open?: boolean) => void;
     generateShareableLink: () => Promise<string>;
+    toggleFullscreenPrompt: (show?: boolean) => void;
     _recordAutomationPoint: (state: any, trackId: number, path: string, value: any) => void;
     addMidiCcLock: (cc?: number, value?: number) => void;
     updateMidiCcLock: (id: string, cc?: number, value?: number) => void;
@@ -256,6 +258,7 @@ const initialAppState: AppState = {
     isSpectator: false,
     lastNotificationTime: 0,
     isShareJamOpen: false,
+    showFullscreenPrompt: false,
 };
 
 async function renderPatternAudio(
@@ -726,7 +729,14 @@ export const useStore = create<AppState & AppActions>()(
                         localStorage.setItem('fm8r-welcome-dismissed', 'true');
                     }
                     const shouldShowQuickStart = !localStorage.getItem('fm8r-quickstart-finished');
+                    const fullscreenPromptDismissed = localStorage.getItem('fm8r-fullscreen-prompt-dismissed');
+
                     set({ showWelcomeScreen: false, showQuickStart: shouldShowQuickStart });
+                    
+                    if (!shouldShowQuickStart && !fullscreenPromptDismissed) {
+                        set({ showFullscreenPrompt: true });
+                    }
+
                     get().startAudio();
                 },
                 
@@ -1377,6 +1387,10 @@ export const useStore = create<AppState & AppActions>()(
                 toggleQuickStart: (show) => {
                     if (show === false) {
                         localStorage.setItem('fm8r-quickstart-finished', 'true');
+                        const fullscreenPromptDismissed = localStorage.getItem('fm8r-fullscreen-prompt-dismissed');
+                        if (!fullscreenPromptDismissed) {
+                            set({ showFullscreenPrompt: true });
+                        }
                     }
                     set(state => ({ showQuickStart: show === undefined ? !state.showQuickStart : show }));
                 },
@@ -2096,6 +2110,9 @@ export const useStore = create<AppState & AppActions>()(
                         reader.onerror = reject;
                         reader.readAsDataURL(blob);
                     });
+                },
+                toggleFullscreenPrompt: (show) => {
+                    set(state => ({ showFullscreenPrompt: show === undefined ? !state.showFullscreenPrompt : show }));
                 },
                 addMidiCcLock: (cc = 74, value = 64) => {
                     set(state => {

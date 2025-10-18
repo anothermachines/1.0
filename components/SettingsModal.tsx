@@ -334,6 +334,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                     </div>
                 </main>
+                <footer className="p-3 border-t border-[var(--border-color)] flex-shrink-0 text-center">
+                    <p className="text-xs text-neutral-500 font-mono">FM8/R V1.0</p>
+                </footer>
             </div>
         </div>
     );
