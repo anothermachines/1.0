@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { GlobalFXParams, Track } from '../types';
 import { useStore } from '../store/store';
 import Knob from './Knob';
@@ -8,7 +8,7 @@ import { shallow } from 'zustand/shallow';
 
 const Section: React.FC<{ title: string; children: React.ReactNode, className?: string }> = ({ title, children, className }) => (
     <div className="px-2 pb-3">
-        <div className="bg-[var(--bg-panel-dark)] rounded-md border border-[var(--border-color)]/50 p-2">
+        <div className="bg-[var(--bg-panel-dark)] rounded-md border border-[var(--border-color)] p-2">
             <h3 className="text-sm font-bold text-[var(--accent-color)] uppercase tracking-wider mb-1 text-center" style={{textShadow: '0 0 5px var(--accent-color)'}}>{title}</h3>
             <div className={`grid gap-x-2 gap-y-8 ${className}`}>
                 {children}
@@ -25,7 +25,11 @@ const EffectsRack: React.FC = () => {
     isSpectator: state.isSpectator,
     triggerViewerModeInteraction: state.triggerViewerModeInteraction,
   }), shallow);
-  const onChange = setGlobalFxParam;
+  
+  const onChange = useCallback((fx: keyof GlobalFXParams, param: string, value: any) => {
+    setGlobalFxParam(fx, param, value);
+  }, [setGlobalFxParam]);
+
 
   const { reverb, delay, drive, compressor, masterFilter, character } = fxParams;
   

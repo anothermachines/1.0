@@ -78,7 +78,7 @@ export const PianoRoll: React.FC = () => {
     
     if (!track) {
         return (
-            <div className="h-full flex flex-col bg-[var(--bg-panel-dark)] rounded-md border border-[var(--border-color)]/50 text-xs min-h-0">
+            <div className="h-full flex flex-col bg-[var(--bg-panel-dark)] rounded-md border border-[var(--border-color)] text-xs min-h-0">
                 <div className="flex-grow flex items-center justify-center text-neutral-500">
                     Select a melodic track to display Piano Roll.
                 </div>
@@ -408,9 +408,9 @@ export const PianoRoll: React.FC = () => {
     const globalCurrentPage = Math.floor(currentStep / 16);
 
     return (
-        <div className="flex flex-col h-full bg-[var(--bg-panel-dark)] rounded-md border border-[var(--border-color)]/50 text-xs min-h-0">
+        <div className="flex flex-col h-full bg-[var(--bg-panel-dark)] rounded-md border border-[var(--border-color)] text-xs min-h-0">
             {/* Toolbar */}
-            <div className="flex-shrink-0 flex flex-wrap items-center justify-between p-1 border-b border-[var(--border-color)]/50 gap-2">
+            <div className="flex-shrink-0 flex flex-wrap items-center justify-between p-1 border-b border-[var(--border-color)] gap-2">
                 <div className="flex items-center gap-1">
                     <button onClick={() => setIsFolded(!isFolded)} className={`px-2 py-1 rounded text-[10px] ${isFolded ? 'bg-purple-500 text-white' : 'bg-neutral-600'}`}>FOLD</button>
                     <select value={rootNote} onChange={e => setRootNote(parseInt(e.target.value))} className="bg-neutral-700 rounded p-1 text-[10px]">

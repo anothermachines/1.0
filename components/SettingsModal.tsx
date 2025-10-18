@@ -111,7 +111,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         {/* Audio Settings */}
                         <div>
                             <h4 className="text-sm font-bold text-neutral-400 uppercase tracking-wider mb-3">Audio</h4>
-                            <div className="space-y-4 bg-black/20 p-3 rounded-md border border-[var(--border-color)]/50">
+                            <div className="space-y-4 bg-black/20 p-3 rounded-md border border-[var(--border-color)]">
                                 <div>
                                     <label className="text-xs text-neutral-300 block mb-1">Output Device</label>
                                     <select
@@ -148,7 +148,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         {/* UI Performance Settings */}
                         <div>
                             <h4 className="text-sm font-bold text-neutral-400 uppercase tracking-wider mb-3">UI Performance</h4>
-                            <div className="space-y-4 bg-black/20 p-3 rounded-md border border-[var(--border-color)]/50">
+                            <div className="space-y-4 bg-black/20 p-3 rounded-md border border-[var(--border-color)]">
                                 <div>
                                     <label className="text-xs text-neutral-300 block mb-1">VU Meter Mode</label>
                                     <div className="grid grid-cols-3 gap-2">
@@ -172,7 +172,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         {/* Custom Content (Owner Only) */}
                          {isOwner && (<div>
                             <h4 className="text-sm font-bold text-neutral-400 uppercase tracking-wider mb-3">Custom Content</h4>
-                            <div className="space-y-2 bg-black/20 p-3 rounded-md border border-[var(--border-color)]/50">
+                            <div className="space-y-2 bg-black/20 p-3 rounded-md border border-[var(--border-color)]">
                                 <label className="text-xs text-neutral-300 block mb-1">Custom Store Manifest URL</label>
                                 <div className="flex space-x-2">
                                     <input
@@ -196,7 +196,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         {midiContext && (
                             <div>
                                 <h4 className="text-sm font-bold text-neutral-400 uppercase tracking-wider mb-3">MIDI Sync</h4>
-                                <div className="space-y-4 bg-black/20 p-3 rounded-md border border-[var(--border-color)]/50">
+                                <div className="space-y-4 bg-black/20 p-3 rounded-md border border-[var(--border-color)]">
                                     <div>
                                         <label className="text-xs text-neutral-300 block mb-1">Sync Source</label>
                                         <select
@@ -231,7 +231,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         {midiContext && (
                             <div>
                                 <h4 className="text-sm font-bold text-neutral-400 uppercase tracking-wider mb-3">MIDI Mapping</h4>
-                                <div className="space-y-4 bg-black/20 p-3 rounded-md border border-[var(--border-color)]/50">
+                                <div className="space-y-4 bg-black/20 p-3 rounded-md border border-[var(--border-color)]">
                                     <div>
                                         <label className="text-xs text-neutral-300 block mb-1">MIDI Input Device</label>
                                         <select
@@ -307,7 +307,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         
                         <div className="animate-fade-in">
                             <h4 className="text-sm font-bold text-neutral-400 uppercase tracking-wider mb-3">Accent Color</h4>
-                            <div className="flex justify-center p-2 rounded-md bg-black/20 border border-[var(--border-color)]/50">
+                            <div className="flex justify-center p-2 rounded-md bg-black/20 border border-[var(--border-color)]">
                                 <ThemeSelector 
                                     themes={accentThemes}
                                     activeTheme={activeAccentTheme}

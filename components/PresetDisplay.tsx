@@ -32,6 +32,8 @@ const PresetDisplay: React.FC<PresetDisplayProps> = ({
     triggerViewerModeInteraction: state.triggerViewerModeInteraction,
   }), shallow);
 
+  const handleBpmChange = useCallback((v: number) => setBpm(v), [setBpm]);
+  const handleMasterVolumeChange = useCallback((v: number) => setMasterVolume(v), [setMasterVolume]);
 
   return (
     <div className="flex items-center space-x-3 bg-gradient-to-b from-[var(--bg-panel-dark)] to-[var(--bg-chassis)] rounded-md p-2 border border-[var(--border-color-darker)] shadow-inner">
@@ -50,7 +52,7 @@ const PresetDisplay: React.FC<PresetDisplayProps> = ({
             min={60}
             max={220}
             step={1}
-            onChange={setBpm}
+            onChange={handleBpmChange}
             size={46}
             mapInfo={{ path: 'preset.bpm', label: 'BPM' }}
             disabled={isSpectator}
@@ -62,7 +64,7 @@ const PresetDisplay: React.FC<PresetDisplayProps> = ({
             min={0}
             max={1.5}
             step={0.01}
-            onChange={setMasterVolume}
+            onChange={handleMasterVolumeChange}
             size={46}
             displayTransform={(v) => {
                 const db = 20 * Math.log10(v);

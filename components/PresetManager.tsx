@@ -118,7 +118,7 @@ const PresetManager: React.FC = () => {
                 </header>
                 
                 <main className="flex-grow p-2 overflow-hidden flex flex-col">
-                    <div className="bg-black/70 rounded border border-[var(--border-color)]/50 overflow-y-auto no-scrollbar flex-grow">
+                    <div className="bg-black/70 rounded border border-[var(--border-color)] overflow-y-auto no-scrollbar flex-grow">
                         <ul className="p-1">
                             {presets.map((preset, index) => (
                                 <li key={`${preset.name}-${index}`} className="group flex items-center space-x-1 pr-1 my-0.5">
@@ -154,7 +154,7 @@ const PresetManager: React.FC = () => {
                     </div>
                 </main>
                 
-                <footer className="p-4 border-t border-[var(--border-color)]/50 bg-black/20 rounded-b-lg flex-shrink-0">
+                <footer className="p-4 border-t border-[var(--border-color)] bg-black/20 rounded-b-lg flex-shrink-0">
                     <div className="flex flex-col space-y-2">
                         <div className="flex space-x-2">
                             <input 
@@ -190,7 +190,7 @@ const PresetManager: React.FC = () => {
                             </button>
                         </div>
 
-                        <div className="border-t border-[var(--border-color)]/50 pt-3 mt-1">
+                        <div className="border-t border-[var(--border-color)] pt-3 mt-1">
                             <div className="flex flex-col space-y-2">
                                 <div className="flex space-x-2">
                                     <button onClick={exportProject} className="w-full px-3 py-2 text-xs font-bold rounded-sm bg-neutral-600 hover:bg-neutral-500 border border-neutral-500 text-white transition-colors">EXPORT CURRENT</button>

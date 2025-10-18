@@ -67,8 +67,13 @@ const StepButton: React.FC<StepButtonProps> = React.memo(({
 
     const baseBg = isDarkGroup ? 'var(--sequencer-step-dark)' : 'var(--sequencer-step-light)';
     const baseShadow = 'inset 0 1px 1px rgba(0,0,0,0.5), inset 0 -1px 1px rgba(255,255,255,0.1)';
-    const innerGlow = `inset 0 0 8px 2px rgba(255,255,255,${0.25 + (step?.velocity ?? 1.0) * 0.35})`;
-    const outerGlow = isActive ? `0 0 10px 2px rgba(var(--accent-rgb), ${0.4 + (step?.velocity ?? 1.0) * 0.4})` : 'none';
+    
+    // Performance Optimization: Use opacity for velocity instead of animating box-shadow.
+    // A baseline opacity of 0.4 ensures even quiet notes are visible.
+    const velocityOpacity = isActive ? 0.4 + (step.velocity * 0.6) : 0;
+    
+    // Simplified, non-velocity-dependent outer glow for active steps.
+    const outerGlow = isActive ? `0 0 8px 1px rgba(var(--accent-rgb), 0.5)` : 'none';
 
     return (
         <button
@@ -101,8 +106,8 @@ const StepButton: React.FC<StepButtonProps> = React.memo(({
                 className="absolute inset-0 rounded-md transition-opacity duration-100"
                 style={{
                     background: 'var(--accent-color)',
-                    boxShadow: `${baseShadow}, ${innerGlow}`,
-                    opacity: isActive ? 1 : 0,
+                    boxShadow: baseShadow,
+                    opacity: velocityOpacity,
                 }}
             />
 
@@ -134,6 +139,10 @@ const TrackRow = React.memo(({ track, currentPage, isSelected, isAudible, isDisa
     }), shallow);
     const currentStep = usePlaybackStore(state => state.currentStep);
     const stepsForTrack = track.patterns[track.activePatternIndex] || [];
+
+    const handleStepClickCallback = useCallback((trackId: number, stepIndex: number) => {
+        handleStepClick(trackId, stepIndex);
+    }, [handleStepClick]);
 
     return (
         <div className={`flex items-stretch space-x-2 border-b border-neutral-700/50 last:border-b-0 ${isDisabled ? 'opacity-50' : ''}`}>
@@ -168,7 +177,7 @@ const TrackRow = React.memo(({ track, currentPage, isSelected, isAudible, isDisa
                                 stepIndex={stepIndex}
                                 patternLength={track.patternLength}
                                 isSelectedForPLock={isSelectedForPLock}
-                                onClick={() => handleStepClick(track.id, stepIndex)}
+                                onClick={() => handleStepClickCallback(track.id, stepIndex)}
                                 mapInfo={{ path: `sequencer.step.${track.id}.${stepIndex}`, label: `T${track.id + 1} Step ${stepIndex + 1}` }}
                                 isDarkGroup={isDarkGroup}
                                 defaultNote={track.defaultNote}
@@ -287,11 +296,31 @@ const SequencerComponent: React.FC = () => {
   const currentConditionString = JSON.stringify(currentCondition);
   const conditionOptions = TRIG_CONDITIONS.map(c => ({ label: c.label, value: JSON.stringify(c.value) }));
 
+  // Performance: Memoize callbacks for knobs
+  const handlePLockConditionChange = useCallback((v: string) => {
+      if(selectedPLockStep) setStepProperty(selectedPLockStep.trackId, selectedPLockStep.stepIndex, 'condition', JSON.parse(v))
+  }, [selectedPLockStep, setStepProperty]);
+  const handlePLockNoteChange = useCallback((v: number) => {
+      if(selectedPLockStep) setStepProperty(selectedPLockStep.trackId, selectedPLockStep.stepIndex, 'notes', [midiToNoteName(v)])
+  }, [selectedPLockStep, setStepProperty]);
+  const handlePLockVelocityChange = useCallback((v: number) => {
+      if(selectedPLockStep) setStepProperty(selectedPLockStep.trackId, selectedPLockStep.stepIndex, 'velocity', v)
+  }, [selectedPLockStep, setStepProperty]);
+  const handlePLockDecayChange = useCallback((v: number) => setParam('ampEnv.decay', v), [setParam]);
+  const handlePLockCutoffChange = useCallback((v: number) => setParam('filter.cutoff', v), [setParam]);
+  const handlePLockResoChange = useCallback((v: number) => setParam('filter.resonance', v), [setParam]);
+  const handlePLockPanChange = useCallback((v: number) => {
+    if(pLockTrack) setTrackPan(pLockTrack.id, v)
+  }, [pLockTrack, setTrackPan]);
+  const handlePLockReverbChange = useCallback((v: number) => {
+    if(pLockTrack) setFxSend(pLockTrack.id, 'reverb', v)
+  }, [pLockTrack, setFxSend]);
+  const handlePatternLengthChange = useCallback((v: number) => setPatternLength(selectedTrackId, v), [selectedTrackId, setPatternLength]);
 
   return (
     <div className="h-full flex flex-col space-y-2">
         {/* Toolbar */}
-        <div className="flex flex-wrap justify-between items-center bg-[var(--bg-panel-dark)] p-2 rounded border border-[var(--border-color)]/50 flex-shrink-0 gap-2">
+        <div className="flex flex-wrap justify-between items-center bg-[var(--bg-panel-dark)] p-2 rounded border border-[var(--border-color)] flex-shrink-0 gap-2">
             <div className='flex items-center space-x-2 justify-start'>
                  <button
                     onClick={toggleCenterView}
@@ -415,7 +444,7 @@ const SequencerComponent: React.FC = () => {
         </div>
         
         {/* Main Grid Area */}
-        <div className="flex-grow min-h-0 flex flex-col overflow-auto no-scrollbar bg-[var(--bg-chassis)] p-2 rounded-md border border-[var(--border-color)]/50" data-tour-id="sequencer-grid">
+        <div className="flex-grow min-h-0 flex flex-col overflow-auto no-scrollbar bg-[var(--bg-chassis)] p-2 rounded-md border border-[var(--border-color)]" data-tour-id="sequencer-grid">
             {tracks.map(track => {
                 const isSelected = track.id === selectedTrackId;
                 const isMuted = mutedTracks.includes(track.id);
@@ -438,7 +467,7 @@ const SequencerComponent: React.FC = () => {
 
 
         {/* P-Lock Bar */}
-        <div className="flex flex-wrap justify-between items-center bg-[var(--bg-panel-dark)] p-1 rounded border border-[var(--border-color)]/50 flex-shrink-0 gap-1">
+        <div className="flex flex-wrap justify-between items-center bg-[var(--bg-panel-dark)] p-1 rounded border border-[var(--border-color)] flex-shrink-0 gap-1">
              {euclideanMode && euclideanMode.trackId === selectedTrackId ? (
                 <div className="flex items-center space-x-2 w-full animate-fade-in px-2">
                     <span className="text-sm font-bold text-purple-400 animate-pulse">EUCLIDEAN MODE</span>
@@ -469,7 +498,7 @@ const SequencerComponent: React.FC = () => {
                         </button>
                         <Knob 
                             label="LENGTH" value={selectedTrack?.patternLength || 16} min={1} max={64} step={1}
-                            onChange={(v) => setPatternLength(selectedTrackId, v)} size={40} className="flex-shrink-0"
+                            onChange={handlePatternLengthChange} size={40} className="flex-shrink-0"
                             mapInfo={{ path: `tracks.${selectedTrackId}.patternLength`, label: `T${selectedTrackId+1} Length` }}
                             onDisabledClick={triggerViewerModeInteraction}
                         />
@@ -483,22 +512,22 @@ const SequencerComponent: React.FC = () => {
                                     label="CONDITION"
                                     value={currentConditionString}
                                     options={conditionOptions}
-                                    onChange={v => setStepProperty(selectedPLockStep.trackId, selectedPLockStep.stepIndex, 'condition', JSON.parse(v))}
+                                    onChange={handlePLockConditionChange}
                                     isPLocked={currentCondition.type !== 'always'}
                                 />
                             </div>
                             <div className="flex items-end gap-1 flex-shrink-0">
-                                <Knob label="NOTE" value={pLockStepState?.notes?.[0] ? noteNameToMidi(pLockStepState.notes[0]) : noteNameToMidi(pLockTrack?.defaultNote ?? 'C4')} min={0} max={127} step={1} onChange={(v) => setStepProperty(selectedPLockStep.trackId, selectedPLockStep.stepIndex, 'notes', [midiToNoteName(v)])} size={40} displayTransform={v => midiToNoteName(v)} isPLocked={(pLockStepState?.notes?.length ?? 0) > 0} />
+                                <Knob label="NOTE" value={pLockStepState?.notes?.[0] ? noteNameToMidi(pLockStepState.notes[0]) : noteNameToMidi(pLockTrack?.defaultNote ?? 'C4')} min={0} max={127} step={1} onChange={handlePLockNoteChange} size={40} displayTransform={v => midiToNoteName(v)} isPLocked={(pLockStepState?.notes?.length ?? 0) > 0} />
                                 <button onClick={handleClearNoteLock} className="h-6 px-1.5 text-[8px] font-bold rounded-sm bg-red-800 hover:bg-red-700 border border-red-900 transition-colors text-white mb-1" title="Clear Note P-Lock">CLR</button>
                             </div>
-                            <Knob label="VELOCITY" value={pLockStepState?.velocity ?? 1.0} min={0.01} max={1} step={0.01} onChange={(v) => setStepProperty(selectedPLockStep.trackId, selectedPLockStep.stepIndex, 'velocity', v)} size={40} isPLocked={pLockStepState?.velocity !== 1.0} className="flex-shrink-0" />
+                            <Knob label="VELOCITY" value={pLockStepState?.velocity ?? 1.0} min={0.01} max={1} step={0.01} onChange={handlePLockVelocityChange} size={40} isPLocked={pLockStepState?.velocity !== 1.0} className="flex-shrink-0" />
                             {pLockTrack.type !== 'midi' && (
                                 <>
-                                    <Knob label="DECAY" value={getParamValue(pLockTrack, pLockStepState.pLocks, 'ampEnv.decay')} min={0.01} max={4} step={0.01} onChange={v => setParam('ampEnv.decay', v)} size={40} isPLocked={isParamLocked(pLockTrack, pLockStepState.pLocks, 'ampEnv.decay')} className="flex-shrink-0" />
-                                    <Knob label="CUTOFF" value={getParamValue(pLockTrack, pLockStepState.pLocks, 'filter.cutoff')} min={20} max={20000} onChange={v => setParam('filter.cutoff', v)} size={40} isPLocked={isParamLocked(pLockTrack, pLockStepState.pLocks, 'filter.cutoff')} className="flex-shrink-0" />
-                                    <Knob label="RESO" value={getParamValue(pLockTrack, pLockStepState.pLocks, 'filter.resonance')} min={0.1} max={30} step={0.1} onChange={v => setParam('filter.resonance', v)} size={40} isPLocked={isParamLocked(pLockTrack, pLockStepState.pLocks, 'filter.resonance')} className="flex-shrink-0" />
-                                    <Knob label="PAN" value={getTrackValue(pLockTrack, pLockStepState.pLocks, 'pan')} min={-1} max={1} step={0.01} onChange={v => setTrackPan(pLockTrack.id, v)} size={40} isPLocked={isTrackValueLocked(pLockStepState.pLocks, 'pan')} displayTransform={v => { const p = Math.round(v * 100); return p === 0 ? 'C' : p < 0 ? `${Math.abs(p)}L` : `${p}R`; }} className="flex-shrink-0" />
-                                    <Knob label="REVERB" value={getSendValue(pLockTrack, pLockStepState.pLocks, 'reverb')} min={0} max={1} step={0.01} onChange={v => setFxSend(pLockTrack.id, 'reverb', v)} size={40} isPLocked={isSendLocked(pLockStepState.pLocks, 'reverb')} className="flex-shrink-0" />
+                                    <Knob label="DECAY" value={getParamValue(pLockTrack, pLockStepState.pLocks, 'ampEnv.decay')} min={0.01} max={4} step={0.01} onChange={handlePLockDecayChange} size={40} isPLocked={isParamLocked(pLockTrack, pLockStepState.pLocks, 'ampEnv.decay')} className="flex-shrink-0" />
+                                    <Knob label="CUTOFF" value={getParamValue(pLockTrack, pLockStepState.pLocks, 'filter.cutoff')} min={20} max={20000} onChange={handlePLockCutoffChange} size={40} isPLocked={isParamLocked(pLockTrack, pLockStepState.pLocks, 'filter.cutoff')} className="flex-shrink-0" />
+                                    <Knob label="RESO" value={getParamValue(pLockTrack, pLockStepState.pLocks, 'filter.resonance')} min={0.1} max={30} step={0.1} onChange={handlePLockResoChange} size={40} isPLocked={isParamLocked(pLockTrack, pLockStepState.pLocks, 'filter.resonance')} className="flex-shrink-0" />
+                                    <Knob label="PAN" value={getTrackValue(pLockTrack, pLockStepState.pLocks, 'pan')} min={-1} max={1} step={0.01} onChange={handlePLockPanChange} size={40} isPLocked={isTrackValueLocked(pLockStepState.pLocks, 'pan')} displayTransform={v => { const p = Math.round(v * 100); return p === 0 ? 'C' : p < 0 ? `${Math.abs(p)}L` : `${p}R`; }} className="flex-shrink-0" />
+                                    <Knob label="REVERB" value={getSendValue(pLockTrack, pLockStepState.pLocks, 'reverb')} min={0} max={1} step={0.01} onChange={handlePLockReverbChange} size={40} isPLocked={isSendLocked(pLockStepState.pLocks, 'reverb')} className="flex-shrink-0" />
                                 </>
                             )}
                         </div>

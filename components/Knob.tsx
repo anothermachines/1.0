@@ -201,7 +201,7 @@ const Knob: React.FC<KnobProps> = ({ label, value, min, max, step = 1, onChange,
       tabIndex={disabled ? -1 : 0}
     >
       <div
-        className={`knob-container relative rounded-full flex items-center justify-center transition-all duration-150 ${disabled ? 'cursor-not-allowed' : 'cursor-ns-resize'} ${isInteracting ? 'scale-105 interacting' : ''}`}
+        className={`knob-container relative rounded-full flex items-center justify-center transition-all duration-150 ${disabled ? 'cursor-not-allowed' : 'cursor-ns-resize'} ${isInteracting ? 'interacting' : ''}`}
         style={{ 
             width: size, 
             height: size,
