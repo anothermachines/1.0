@@ -148,6 +148,19 @@ const INITIAL_FX_SENDS: FXSends = {
     sidechain: 0
 };
 
+const kickPatternsWithFourOnTheFloor = createEmptyPatterns();
+// Set a constant four-on-the-floor beat for the first pattern
+for (let i = 0; i < 4; i++) {
+    kickPatternsWithFourOnTheFloor[0][i * 4] = {
+        active: true,
+        pLocks: null,
+        notes: ['C2'],
+        velocity: 1.0,
+        duration: 1,
+        condition: { type: 'always' }
+    };
+}
+
 
 export const INITIAL_TRACKS: Track[] = [
   {
@@ -160,7 +173,7 @@ export const INITIAL_TRACKS: Track[] = [
     pan: 0,
     patternLength: 16,
     defaultNote: 'C2',
-    patterns: createEmptyPatterns(),
+    patterns: kickPatternsWithFourOnTheFloor,
     activePatternIndex: 0,
     automation: {},
     loadedInstrumentPresetName: null,
