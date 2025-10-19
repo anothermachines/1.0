@@ -187,7 +187,7 @@ const Manual: React.FC = () => {
                                 <li className="mb-3"><strong className="text-[var(--text-light)] font-medium">Wet Stems:</strong> Exports each audible track as a separate WAV file, including the master send effects (Reverb, Delay, Drive).</li>
                                 <li className="mb-3"><strong className="text-[var(--text-light)] font-medium">Dry Stems:</strong> Exports each track as a pure, clean WAV file with no master effects, perfect for mixing in your DAW.</li>
                             </ul>
-                            <p className="text-[var(--text-muted)] text-base mb-4 leading-relaxed">The <kbd className="px-2 py-1 font-mono text-sm text-[var(--text-screen)] bg-[#3b4252] border border-[#4c566a] rounded-md shadow-md">SHARE JAM</kbd> button generates a unique link containing your compressed project data for others to listen to instantly.</p>
+                            <p className="text-[var(--text-muted)] text-base mb-4 leading-relaxed">The <kbd className="px-2 py-1 font-mono text-sm text-[var(--text-screen)] bg-[#3b4252] border border-[#4c566a] rounded-md shadow-md">SHARE JAM</kbd> button opens a powerful sharing suite. You can record a video of your current loop—complete with a dynamic visualizer—and download it as a .webm file for social media. You can also generate a unique link with your compressed project data for others to listen to instantly in their browser.</p>
                         </section>
 
                         <section id="manual-midi">

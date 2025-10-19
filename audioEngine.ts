@@ -2,7 +2,7 @@ import {
     Track, StepState, PLocks, GlobalFXParams, CompressorParams, FXSends, Envelope, TrackType, MidiOutParams, LFOParams
 } from './types';
 // FIX: Import 'noteToFreq' to resolve 'Cannot find name' errors.
-import { getAutomationValue, noteToFreq } from './utils';
+import { getAutomationValue, noteToFreq } from '../utils';
 
 // Helper to ensure values are finite numbers
 const finite = (value: any, fallback: number): number => {
@@ -35,7 +35,8 @@ export class AudioEngine {
     private audioContext: AudioContext | OfflineAudioContext;
     private masterCompressor: DynamicsCompressorNode;
     private makeupGain: GainNode;
-    private preCompressorBus: GainNode;
+    // FIX: Renamed private property to avoid conflict with public getter.
+    private _preCompressorBus: GainNode;
     private masterFilter: BiquadFilterNode;
     private masterLimiter: DynamicsCompressorNode;
     private masterGain: GainNode;
@@ -87,6 +88,7 @@ export class AudioEngine {
     private midiOutputs: MIDIOutput[] = [];
 
     public masterStreamDestination: MediaStreamAudioDestinationNode;
+    private isConnectedToDestination = true;
 
     constructor(context?: AudioContext | OfflineAudioContext) {
         this.audioContext = context || new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -101,13 +103,15 @@ export class AudioEngine {
         this.warpTableCache = new Map();
         this.bpm = 120;
 
-        this.preCompressorBus = this.audioContext.createGain();
+        // FIX: Renamed private property to avoid conflict with public getter.
+        this._preCompressorBus = this.audioContext.createGain();
         
         this.driveBus = this.audioContext.createGain(); this.driveBus.gain.value = 0.8;
         this.drive = this.audioContext.createWaveShaper();
         this.driveTone = this.audioContext.createBiquadFilter(); this.driveTone.type = 'lowpass';
         this.driveWet = this.audioContext.createGain();
-        this.driveBus.connect(this.drive).connect(this.driveTone).connect(this.driveWet).connect(this.preCompressorBus);
+        // FIX: Renamed private property to avoid conflict with public getter.
+        this.driveBus.connect(this.drive).connect(this.driveTone).connect(this.driveWet).connect(this._preCompressorBus);
         
         this.reverbBus = this.audioContext.createGain();
         this.reverbPreDelay = this.audioContext.createDelay(0.5);
@@ -115,13 +119,15 @@ export class AudioEngine {
         this.reverb.buffer = this.audioContext.createBuffer(2, 1, this.audioContext.sampleRate); // Placeholder
         this.reverbDampingFilter = this.audioContext.createBiquadFilter(); this.reverbDampingFilter.type = 'lowpass';
         this.reverbWet = this.audioContext.createGain();
-        this.reverbBus.connect(this.reverbPreDelay).connect(this.reverb).connect(this.reverbDampingFilter).connect(this.reverbWet).connect(this.preCompressorBus);
+        // FIX: Renamed private property to avoid conflict with public getter.
+        this.reverbBus.connect(this.reverbPreDelay).connect(this.reverb).connect(this.reverbDampingFilter).connect(this.reverbWet).connect(this._preCompressorBus);
 
         this.delayBus = this.audioContext.createGain();
         this.delay = this.audioContext.createDelay(2.0); this.delayFeedback = this.audioContext.createGain();
         this.delayFilter = this.audioContext.createBiquadFilter(); this.delayFilter.type = 'lowpass';
         this.delayWet = this.audioContext.createGain();
-        this.delayBus.connect(this.delay).connect(this.delayWet).connect(this.preCompressorBus);
+        // FIX: Renamed private property to avoid conflict with public getter.
+        this.delayBus.connect(this.delay).connect(this.delayWet).connect(this._preCompressorBus);
         this.delay.connect(this.delayFeedback).connect(this.delayFilter).connect(this.delay);
         
         // --- Master Chain Setup ---
@@ -144,7 +150,8 @@ export class AudioEngine {
         }
 
         // The Master Chain Routing
-        this.preCompressorBus.connect(this.sidechainDucker)
+        // FIX: Renamed private property to avoid conflict with public getter.
+        this._preCompressorBus.connect(this.sidechainDucker)
             .connect(this.masterFilter)
             .connect(this.character) // Serial Character FX
             .connect(this.masterCompressor)
@@ -193,6 +200,25 @@ export class AudioEngine {
     }
 
     public getMasterAnalyser = () => this.masterAnalyser;
+
+    // FIX: Renamed private property to avoid conflict with public getter.
+    public get preCompressorBus() {
+        return this._preCompressorBus;
+    }
+
+    public disconnectDestination() {
+        if (this.isConnectedToDestination && this.audioContext instanceof AudioContext) {
+            this.masterAnalyser.disconnect(this.audioContext.destination);
+            this.isConnectedToDestination = false;
+        }
+    }
+
+    public connectDestination() {
+        if (!this.isConnectedToDestination && this.audioContext instanceof AudioContext) {
+            this.masterAnalyser.connect(this.audioContext.destination);
+            this.isConnectedToDestination = true;
+        }
+    }
 
     resume() { return this.audioContext.state === 'suspended' ? this.audioContext.resume() : Promise.resolve(); }
     getContext() { return this.audioContext; }
@@ -256,7 +282,8 @@ export class AudioEngine {
             sends.reverb.connect(this.reverbBus); sends.delay.connect(this.delayBus); sends.drive.connect(this.driveBus);
             limiter.connect(gain).connect(panner).connect(analyser);
             if (track.type !== 'midi') { // MIDI tracks produce no audio
-                analyser.connect(this.preCompressorBus); 
+                // FIX: Renamed private property to avoid conflict with public getter.
+                analyser.connect(this._preCompressorBus); 
                 analyser.connect(sends.reverb); 
                 analyser.connect(sends.delay); 
                 analyser.connect(sends.drive);
