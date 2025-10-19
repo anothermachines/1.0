@@ -4,7 +4,7 @@ import { Track, PLocks, LFODestination, LFOParams, FilterParams, Envelope, FXSen
 import Knob from './Knob';
 import InstrumentPresetManager from './InstrumentPresetManager';
 import { TIME_DIVISIONS } from '../constants';
-import { getParamValue, isParamLocked, getTrackValue, getSendValue, isTrackValueLocked, isSendLocked, getMidiOutParamValue, isMidiOutParamLocked } from '../utils';
+import { getParamValue, isParamLocked, getTrackValue, getSendValue, isTrackValueLocked, isSendLocked, getMidiOutParamValue, isMidiOutParamLocked, getInitialParamsForType } from '../utils';
 import Selector from './Selector';
 import TrackSelector from './TrackSelector';
 import { shallow } from 'zustand/shallow';
@@ -643,7 +643,17 @@ const InstrumentEditor: React.FC = () => {
         onImportInstrumentPresets, onExportInstrumentPresets, onMidiOutParamChange, isSpectator, triggerViewerModeInteraction,
         isPLockModeActive, selectedPLockStep, isViewerMode,
     } = useStore(state => {
-        const selectedTrack = state.preset?.tracks?.find(t => t.id === state.selectedTrackId);
+        let selectedTrack = state.preset?.tracks?.find(t => t.id === state.selectedTrackId);
+        
+        // If track params are empty (e.g., in viewer mode for locked tracks),
+        // create a temporary track object with default params for display purposes.
+        if (selectedTrack && Object.keys(selectedTrack.params).length === 0) {
+            selectedTrack = {
+                ...selectedTrack,
+                params: getInitialParamsForType(selectedTrack.type),
+            };
+        }
+
         const pLockTrack = state.selectedPLockStep ? state.preset?.tracks?.find(t => t.id === state.selectedPLockStep!.trackId) : null;
         const pLockStepState = pLockTrack ? pLockTrack.patterns[pLockTrack.activePatternIndex][state.selectedPLockStep!.stepIndex] : null;
         

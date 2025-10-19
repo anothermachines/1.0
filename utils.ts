@@ -1,7 +1,11 @@
 import {
     Track, StepState, PLocks, AutomationData, MidiOutParams, FXSends, KickParams, HatParams,
-    ArcaneParams, RuinParams, ArtificeParams, ShiftParams, ResonParams, AlloyParams, TrackType
+    ArcaneParams, RuinParams, ArtificeParams, ShiftParams, ResonParams, AlloyParams, TrackType, AllInstrumentParams
 } from './types';
+import { 
+    INITIAL_KICK_PARAMS, INITIAL_HAT_PARAMS, INITIAL_ARCANE_PARAMS, INITIAL_RUIN_PARAMS, 
+    INITIAL_ARTIFICE_PARAMS, INITIAL_SHIFT_PARAMS, INITIAL_RESON_PARAMS, INITIAL_ALLOY_PARAMS 
+} from './constants';
 
 
 // --- MIDI & Note Helpers ---
@@ -173,6 +177,20 @@ export const hasParameterLocks = (pLocks: PLocks | null): boolean => {
         !!pLocks.fxSends ||
         !!(pLocks.ccLocks && pLocks.ccLocks.length > 0)
     );
+};
+
+export const getInitialParamsForType = (type: TrackType): AllInstrumentParams => {
+    switch (type) {
+        case 'kick': return INITIAL_KICK_PARAMS;
+        case 'hat': return INITIAL_HAT_PARAMS;
+        case 'arcane': return INITIAL_ARCANE_PARAMS;
+        case 'ruin': return INITIAL_RUIN_PARAMS;
+        case 'artifice': return INITIAL_ARTIFICE_PARAMS;
+        case 'shift': return INITIAL_SHIFT_PARAMS;
+        case 'reson': return INITIAL_RESON_PARAMS;
+        case 'alloy': return INITIAL_ALLOY_PARAMS;
+        default: return {};
+    }
 };
 
 
