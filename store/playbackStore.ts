@@ -5,8 +5,8 @@ import { AudioEngine } from '../audioEngine';
 import { Preset, Track, ArrangementClip } from '../types';
 import { useStore } from './store';
 
-let sequencerTimer: number | null = null;
-let arrangementUpdateTimer: number | null = null;
+// CHANGE: Use setInterval for a more stable clock. The variable now holds the interval ID.
+let sequencerTimerId: number | null = null;
 let playStartTime = 0;
 let playStartOffset = 0;
 let audioEngine: AudioEngine | null = null;
@@ -174,16 +174,6 @@ export const usePlaybackStore = create<PlaybackState & PlaybackActions>()(
 
 // --- SEQUENCER/PLAYBACK LOGIC ---
 
-function arrangementUpdateLoop() {
-    if (!usePlaybackStore.getState().isPlaying || !audioEngine) return;
-    const audioCtxTime = audioEngine.getContext().currentTime;
-    
-    let currentPlayheadTime = playStartOffset + (audioCtxTime - playStartTime);
-
-    usePlaybackStore.setState({ currentPlayheadTime });
-}
-
-
 function scheduler() {
     if (!audioEngine) return;
     
@@ -271,6 +261,7 @@ function scheduler() {
                     const clipDurationSeconds = clip.duration * secondsPerBeat;
 
                     const firstStepInWindow = Math.floor(Math.max(0, scheduleWindowStart - clipStartSeconds) / secondsPerStep);
+                    // FIX: Replaced undefined `endTime` with `scheduleWindowEnd`.
                     const lastStepInWindow = Math.ceil(Math.max(0, scheduleWindowEnd - clipStartSeconds) / secondsPerStep);
 
                     for (let step = firstStepInWindow; step < lastStepInWindow; step++) {
@@ -317,18 +308,19 @@ function scheduler() {
 
 
 const scheduleAheadTime = 0.1; // How far ahead to schedule audio (in seconds)
+const schedulerInterval = 25; // ms. How often we wake up to schedule. More robust than rAF.
 
-function runScheduler() {
-    if (!usePlaybackStore.getState().isPlaying) {
-        if (sequencerTimer) {
-            cancelAnimationFrame(sequencerTimer);
-            sequencerTimer = null;
-        }
-        return;
-    }
+// NEW: The combined loop function driven by setInterval, replacing runScheduler and arrangementUpdateLoop
+function mainLoop() {
+    if (!usePlaybackStore.getState().isPlaying || !audioEngine) return;
+    
+    // Update visual playhead for song mode
+    const audioCtxTime = audioEngine.getContext().currentTime;
+    let currentPlayheadTime = playStartOffset + (audioCtxTime - playStartTime);
+    usePlaybackStore.setState({ currentPlayheadTime });
+
+    // Schedule audio
     scheduler();
-    arrangementUpdateLoop();
-    sequencerTimer = requestAnimationFrame(runScheduler);
 }
 
 
@@ -340,13 +332,15 @@ usePlaybackStore.subscribe(
         if (isPlaying && !prevIsPlaying) {
             // START LOGIC
             if (midiSyncSource === 'internal') {
-                if (sequencerTimer) cancelAnimationFrame(sequencerTimer);
-                runScheduler();
+                if (sequencerTimerId) clearInterval(sequencerTimerId);
+                // Call it once immediately to avoid initial delay and ensure responsiveness.
+                mainLoop(); 
+                sequencerTimerId = setInterval(mainLoop, schedulerInterval);
             }
         } else if (!isPlaying && prevIsPlaying) {
             // STOP LOGIC
-            if (sequencerTimer) cancelAnimationFrame(sequencerTimer);
-            sequencerTimer = null;
+            if (sequencerTimerId) clearInterval(sequencerTimerId);
+            sequencerTimerId = null;
 
             // Finalize recording if it was active
             if (isArrangementRecording) {

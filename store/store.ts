@@ -719,14 +719,17 @@ export const useStore = create<AppState & AppActions>()(
                         localStorage.setItem('fm8r-welcome-dismissed', 'true');
                     }
                     const shouldShowQuickStart = !localStorage.getItem('fm8r-quickstart-finished');
-                    const fullscreenPromptDismissed = localStorage.getItem('fm8r-fullscreen-prompt-dismissed');
-
                     set({ showWelcomeScreen: false, showQuickStart: shouldShowQuickStart });
-                    
-                    if (!shouldShowQuickStart && !fullscreenPromptDismissed) {
-                        set({ showFullscreenPrompt: true });
+                
+                    // If the quick start guide is not going to be shown (because it's already finished),
+                    // then we check if we should show the fullscreen prompt.
+                    if (!shouldShowQuickStart) {
+                        const fullscreenPromptDismissed = localStorage.getItem('fm8r-fullscreen-prompt-dismissed');
+                        if (!fullscreenPromptDismissed) {
+                            set({ showFullscreenPrompt: true });
+                        }
                     }
-
+                
                     get().startAudio();
                 },
                 
@@ -1299,7 +1302,21 @@ export const useStore = create<AppState & AppActions>()(
                 },
                 
                 // --- MODALS & UI STATE ---
-                toggleQuickStart: (show) => set({ showQuickStart: show === undefined ? !get().showQuickStart : show }),
+                toggleQuickStart: (show) => {
+                    const shouldShow = show === undefined ? !get().showQuickStart : show;
+                    set({ showQuickStart: shouldShow });
+                
+                    // If we are hiding the quick start guide, it means the user is done with it.
+                    if (!shouldShow) {
+                        localStorage.setItem('fm8r-quickstart-finished', 'true');
+                        
+                        // Now check if we should show the fullscreen prompt.
+                        const fullscreenPromptDismissed = localStorage.getItem('fm8r-fullscreen-prompt-dismissed');
+                        if (!fullscreenPromptDismissed) {
+                            set({ showFullscreenPrompt: true });
+                        }
+                    }
+                },
                 togglePresetManager: (open) => set({ isPresetManagerOpen: open === undefined ? !get().isPresetManagerOpen : open }),
                 toggleExportModal: (open) => set({ isExportModalOpen: open === undefined ? !get().isExportModalOpen : open }),
                 toggleStore: (open) => set({ isStoreOpen: open === undefined ? !get().isStoreOpen : open }),

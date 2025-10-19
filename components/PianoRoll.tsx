@@ -254,6 +254,12 @@ export const PianoRoll: React.FC = () => {
     
     const processNoteInteraction = (stepIndex: number, midiNote: number) => {
         if (!drawState.current) return;
+        
+        // FIX: Prevent adding notes that are out of scale when in fold mode.
+        if (isFolded && !scaleNotes.has(midiNote % 12)) {
+            return;
+        }
+
         const { mode, modifiedNotes } = drawState.current;
         const noteId = `${stepIndex}-${midiNote}`;
         if (modifiedNotes.has(noteId)) return;
