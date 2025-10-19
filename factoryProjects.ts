@@ -162,14 +162,14 @@ const ethericDub: Preset = {
         { ...deepClone(INITIAL_TRACKS[0]), name: 'Dub Thump', params: { ...INITIAL_KICK_PARAMS, tune: 36, decay: 1.1, impact: 70, tone: 10, character: 15 }, patterns: [createPatternFromSequence([1,null,null,null,1,null,null,null,1,null,null,null,1,null,null,null], 'A1')], volume: 0.5 },
         { ...deepClone(INITIAL_TRACKS[1]), name: 'Rim Echo', params: { ...INITIAL_RESON_PARAMS, pitch: 70, structure: 90, brightness: 9000, decay: 0.95, material: 5, exciter_type: 'impulse', ampEnv: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.05 } }, type: 'reson', patterns: [createPatternFromSequence([null,null,null,null,0.8,null,null,null,null,null,null,null,0.8,null,null,null], 'A5')], fxSends: { delay: 0.9, reverb: 0.6, drive: 0, sidechain: 0 } },
         { ...deepClone(INITIAL_TRACKS[2]), name: 'Sub Roller', params: { ...INITIAL_RUIN_PARAMS, pitch: 34, algorithm: 'feedback_pm', timbre: 25, drive: 5, fold: 0, attack: 0.01, decay: 0.3 }, patternLength: 32, patterns: [createPatternFromSequence([0.9,null,0.8,null,null,null,null,null,0.9,null,null,0.8,null,null,null,null,0.9,null,0.8,null,null,null,null,null,0.9,null,0.8,null,null,null,null,null], 'F#1')], fxSends: { sidechain: 1.0, reverb: 0.2, drive: 0.1, delay: 0.3 }, volume: 0.4 },
-        { ...deepClone(INITIAL_TRACKS[3]), name: 'Washed Chord', params: { ...INITIAL_ARTIFICE_PARAMS, osc1_shape: 20, osc2_shape: 80, osc2_pitch: 3, osc_mix: -15, filter_cutoff: 900, filter_res: 11, ampEnv: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.3 }, filterEnvAmount: 1500, filterEnv: { attack: 0.02, decay: 0.3, sustain: 0, release: 0.2} }, patterns: [(() => {
+        { ...deepClone(INITIAL_TRACKS[3]), name: 'Washed Chord', params: { ...INITIAL_ARTIFICE_PARAMS, osc1_shape: 20, osc2_shape: 80, osc2_pitch: 3, osc_mix: -15, filter_cutoff: 900, filter_res: 11, ampEnv: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.3 }, filterEnvAmount: 1500, filterEnv: { attack: 0.02, decay: 0.3, sustain: 0, release: 0.2} }, type: 'artifice', patterns: [(() => {
             const pattern = createPatternFromSequence(Array(16).fill(null).map((_, i) => [2, 10].includes(i) ? 0.7 : null), 'F#3');
             pattern[2].pLocks = { artificeParams: { filter_cutoff: 4000 } };
             pattern[10].pLocks = { artificeParams: { filter_cutoff: 600, filter_res: 15 } };
             return pattern;
         })()], fxSends: { delay: 0.8, reverb: 0.9, drive: 0, sidechain: 0.2 } },
         { ...deepClone(INITIAL_TRACKS[4]), name: 'Offbeat Hat', params: { ...INITIAL_HAT_PARAMS, decay: 0.15, character: 10 }, patterns: [createPatternFromSequence([null,null,0.7,null,null,null,0.7,null,null,null,0.7,null,null,null,0.7,null], 'C5')], fxSends: { delay: 0.7, reverb: 0.5, drive: 0, sidechain: 0 } },
-        { ...deepClone(INITIAL_TRACKS[5]), name: 'Air Pad', params: { ...INITIAL_SHIFT_PARAMS, pitch: 48, table: 1, position: 20, ampEnv: { attack: 3.0, decay: 2.0, sustain: 1.0, release: 4.0 }, filter: { type: 'lowpass', cutoff: 500, resonance: 5 } }, patterns: [createPatternFromSequence([0.6], 'F#2', 0.6, 16)], fxSends: { reverb: 1.0, delay: 0.8, drive: 0, sidechain: 0.1 }, volume: 0.15 },
+        { ...deepClone(INITIAL_TRACKS[5]), name: 'Air Pad', params: { ...INITIAL_SHIFT_PARAMS, pitch: 48, table: 1, position: 20, ampEnv: { attack: 3.0, decay: 2.0, sustain: 1.0, release: 4.0 }, filter: { type: 'lowpass', cutoff: 500, resonance: 5 } }, type: 'shift', patterns: [createPatternFromSequence([0.6], 'F#2', 0.6, 16)], fxSends: { reverb: 1.0, delay: 0.8, drive: 0, sidechain: 0.1 }, volume: 0.15 },
         { ...deepClone(INITIAL_TRACKS[6]), volume: 0 },
         { ...deepClone(INITIAL_TRACKS[7]), volume: 0 },
     ]
@@ -256,7 +256,6 @@ const quantumEntanglement: Preset = {
         { ...deepClone(INITIAL_TRACKS[3]), name: 'Ruin Hit', params: { ...INITIAL_RUIN_PARAMS, pitch: 45, algorithm: 'overload', timbre: 90, drive: 90, fold: 90, decay: 0.15 }, patternLength: 13, patterns: [createPatternFromSequence([null,null,null,null,0.9,null,null,null,null,null,null,null,null], 'A#2')], fxSends: { delay: 0.5, reverb: 0.3, drive: 0.3, sidechain: 0.1 } },
         { ...deepClone(INITIAL_TRACKS[4]), name: 'Fast Hat', params: { ...INITIAL_HAT_PARAMS, tone: 9000, decay: 0.04, character: 85, spread: 2.2, filter: {type: 'highpass', cutoff: 7000, resonance: 3} }, type: 'hat', patterns: [(() => {
             const p = createPatternFromSequence(Array(16).fill(null).map((_, i) => i % 2 !== 0 ? (0.6 + Math.random() * 0.2) : null), 'C5');
-            // FIX: Corrected the TrigConditionType from '2:3' to 'a:b'.
             p[5].condition = { type: 'a:b', a: 2, b: 3 };
             p[13].condition = { type: 'a:b', a: 2, b: 3 };
             return p;
