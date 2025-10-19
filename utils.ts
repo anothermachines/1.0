@@ -1,6 +1,6 @@
 import {
     Track, StepState, PLocks, AutomationData, MidiOutParams, FXSends, KickParams, HatParams,
-    ArcaneParams, RuinParams, ArtificeParams, ShiftParams, ResonParams, AlloyParams, TrackType, AllInstrumentParams
+    ArcaneParams, RuinParams, ArtificeParams, ShiftParams, ResonParams, AlloyParams, TrackType, AllInstrumentParams, Preset
 } from './types';
 import { 
     INITIAL_KICK_PARAMS, INITIAL_HAT_PARAMS, INITIAL_ARCANE_PARAMS, INITIAL_RUIN_PARAMS, 
@@ -61,27 +61,51 @@ export function deepClone<T>(obj: T): T {
     return obj;
 }
 
-const isObject = (item: any): item is object => {
+const isObject = (item: any): item is Record<string, any> => {
     return (item && typeof item === 'object' && !Array.isArray(item));
 };
 
-export function deepMerge<T extends object>(target: T, source: Partial<T>): T {
-    const output = { ...target };
-    if (isObject(target) && isObject(source)) {
-        Object.keys(source).forEach(key => {
-            const sourceKey = key as keyof T;
-            if (isObject(source[sourceKey])) {
-                if (!(key in target))
-                    Object.assign(output, { [key]: source[sourceKey] });
-                else
-                    output[sourceKey] = deepMerge(target[sourceKey] as object, source[sourceKey] as object) as T[keyof T];
+/**
+ * A robust, schema-enforcing merge function, designed for migrating old project data.
+ * It builds a new object using 'defaults' as a blueprint. It will not allow invalid
+ * types from 'loaded' (like null) to overwrite object structures in 'defaults'.
+ * @param defaults The complete, correct object structure (the blueprint).
+ * @param loaded The partial or old object to merge data from.
+ * @returns A new object with the guaranteed structure of 'defaults'.
+ */
+export function deepMerge(defaults: any, loaded: any): any {
+    // Start with an empty object; we will build it according to the defaults schema.
+    const output: { [key: string]: any } = {};
+
+    // Iterate over the known-good keys of the default structure.
+    for (const key in defaults) {
+        if (Object.prototype.hasOwnProperty.call(defaults, key)) {
+            const defaultValue = defaults[key];
+            const loadedValue = loaded ? loaded[key] : undefined;
+
+            if (isObject(defaultValue)) {
+                // Default is an object. We must ensure the output is an object.
+                // If the loaded value is also a valid object, we can safely merge them recursively.
+                if (isObject(loadedValue)) {
+                    output[key] = deepMerge(defaultValue, loadedValue);
+                } else {
+                    // The loaded value is missing, null, or a primitive.
+                    // DISCARD it and use a clone of the entire default object structure for this key.
+                    output[key] = deepClone(defaultValue);
+                }
             } else {
-                Object.assign(output, { [key]: source[sourceKey] });
+                // It's a primitive or an array. Use the loaded value if it's valid (not undefined),
+                // otherwise fall back to the default value.
+                output[key] = loadedValue !== undefined ? loadedValue : defaultValue;
             }
-        });
+        }
     }
+    
+    // This process intentionally strips any properties from `loaded` that are not present in `defaults`,
+    // ensuring a clean and predictable data structure.
     return output;
 }
+
 
 export function setDeep(obj: any, path: string, value: any) {
     const keys = path.split('.');
@@ -296,7 +320,7 @@ export const createPatternFromSequence = (sequence: (number | null)[], note = 'C
 };
 
 export const generateEuclideanPattern = (pulses: number, steps: number): boolean[] => {
-    if (pulses > steps || steps === 0 || pulses === 0) {
+    if (pulses > steps || steps <= 0 || pulses <= 0) {
         return Array(steps).fill(false);
     }
     const pattern: boolean[] = [];
@@ -316,71 +340,134 @@ export const generateEuclideanPattern = (pulses: number, steps: number): boolean
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 const randInt = (min: number, max: number) => Math.floor(rand(min, max + 1));
+const choose = (arr: any[]) => arr[Math.floor(Math.random() * arr.length)];
 
-export const createTechnoPattern = (type: TrackType, isHypnotic: boolean): { pattern: StepState[], length: number } => {
-    const length = isHypnotic ? [7, 11, 13, 15][randInt(0, 3)] : [8, 16, 32][randInt(0, 2)];
-    const pulses = randInt(1, Math.floor(length / (isHypnotic ? 1.5 : 2)));
-    const rotation = randInt(0, length - 1);
-    const euclidean = generateEuclideanPattern(pulses, length);
-    // rotate
-    const rotated = [...euclidean.slice(rotation), ...euclidean.slice(0, rotation)];
+// --- Intelligent Pattern Randomization ---
+
+const SCALES = {
+    minor: [0, 2, 3, 5, 7, 8, 10],
+    dorian: [0, 2, 3, 5, 7, 9, 10],
+};
+
+export const createTechnoPattern = (type: TrackType, defaultNote: string): { pattern: StepState[], length: number } => {
+    const isHypnotic = Math.random() > 0.6;
+    let length = choose([16, 32]);
+    if (isHypnotic && type !== 'kick') {
+        length = choose([7, 11, 13, 15]);
+    }
 
     const pattern: StepState[] = Array(64).fill(null).map(() => ({ active: false, pLocks: null, notes: [], velocity: 1.0, duration: 1, condition: { type: 'always' } }));
 
-    rotated.forEach((active, i) => {
-        if (active) {
+    if (type === 'kick') {
+        length = 16;
+        for (let i = 0; i < 16; i += 4) { // Four-on-the-floor
             pattern[i].active = true;
-            pattern[i].velocity = rand(0.6, 1.0);
+            pattern[i].velocity = rand(0.9, 1.0); // Accented
         }
-    });
+        if (Math.random() > 0.4) { // Add an off-beat kick
+            const offBeat = choose([6, 7, 13, 14]);
+            pattern[offBeat].active = true;
+            pattern[offBeat].velocity = rand(0.6, 0.8);
+        }
+    } else if (type === 'hat') {
+        if (Math.random() > 0.5) { // Off-beat pattern
+            for (let i = 2; i < length; i += 4) {
+                pattern[i].active = true;
+                pattern[i].velocity = rand(0.5, 0.8);
+            }
+        } else { // 16th note pattern
+            for (let i = 0; i < length; i++) {
+                if (Math.random() > 0.3) {
+                    pattern[i].active = true;
+                    pattern[i].velocity = i % 4 === 0 ? rand(0.3, 0.5) : rand(0.6, 0.9); // Accents
+                }
+            }
+        }
+    } else { // Melodic tracks
+        const rootMidi = noteNameToMidi(defaultNote) % 12;
+        const octave = Math.floor(noteNameToMidi(defaultNote) / 12) -1;
+        const scale = SCALES[choose(Object.keys(SCALES))];
+        
+        const pulses = randInt(Math.floor(length / 4), Math.floor(length / 2));
+        const rhythm = generateEuclideanPattern(pulses, length);
 
+        // Simple melody generation (random walk)
+        const melodyMidi: number[] = [];
+        let currentNoteIndex = randInt(0, scale.length - 1);
+        for(let i=0; i<pulses; i++){
+            melodyMidi.push( (octave + 1) * 12 + rootMidi + scale[currentNoteIndex]);
+            currentNoteIndex += choose([-2, -1, -1, 1, 1, 2]);
+            currentNoteIndex = Math.max(0, Math.min(scale.length-1, currentNoteIndex));
+        }
+        
+        let melodyIdx = 0;
+        for (let i = 0; i < length; i++) {
+            if (rhythm[i]) {
+                pattern[i].active = true;
+                pattern[i].notes = [midiToNoteName(melodyMidi[melodyIdx % melodyMidi.length])];
+                pattern[i].velocity = rand(0.5, 1.0);
+                melodyIdx++;
+            }
+        }
+    }
     return { pattern, length };
 };
 
-export const randomizeKickParams = (): Partial<KickParams> => ({
-    tune: rand(35, 55),
-    decay: rand(0.2, 0.8),
-    impact: rand(80, 100),
-    tone: rand(30, 90),
-    character: rand(0, 100),
-});
+// --- Intelligent Sound Randomization (Archetypes) ---
 
-export const randomizeHatParams = (): Partial<HatParams> => ({
-    tone: rand(7000, 14000),
-    decay: rand(0.02, 0.2),
-    character: rand(0, 100),
-    spread: rand(1.1, 3.0),
-});
+export const randomizeKickParams = (): Partial<KickParams> => {
+    const archetypes = ['punchy', 'deep_sub', 'distorted'];
+    const choice = choose(archetypes);
+    switch(choice) {
+        case 'deep_sub': return { tune: rand(35, 45), decay: rand(0.8, 1.8), impact: rand(70, 85), tone: rand(10, 30), character: rand(20, 50) };
+        case 'distorted': return { tune: rand(45, 55), decay: rand(0.3, 0.6), impact: rand(95, 100), tone: rand(40, 80), character: rand(85, 100) };
+        default: // punchy
+            return { tune: rand(42, 50), decay: rand(0.25, 0.45), impact: rand(90, 100), tone: rand(60, 90), character: rand(10, 40) };
+    }
+};
 
-export const randomizeArcaneParams = (): Partial<ArcaneParams> => ({
-    osc1_shape: rand(0, 100),
-    osc2_shape: rand(0, 100),
-    osc2_pitch: [-12, -7, 0, 7, 12, 19, 24][randInt(0, 6)],
-    mode: ['pm', 'add', 'ring', 'hard_sync'][randInt(0, 3)] as ArcaneParams['mode'],
-    mod_amount: rand(0, 100),
-    fold: rand(0, 100),
-    spread: rand(0, 40),
-});
+export const randomizeHatParams = (): Partial<HatParams> => {
+    const archetypes = ['crispy', 'metallic', 'lofi'];
+    const choice = choose(archetypes);
+    switch(choice) {
+        case 'metallic': return { tone: rand(6000, 8000), decay: rand(0.1, 0.3), character: rand(90, 100), spread: rand(1.0, 1.5) };
+        case 'lofi': return { tone: rand(7000, 9000), decay: rand(0.05, 0.15), character: rand(80, 100), spread: rand(2.5, 4.0) };
+        default: // crispy
+            return { tone: rand(9000, 12000), decay: rand(0.02, 0.08), character: rand(20, 60), spread: rand(1.5, 2.5) };
+    }
+};
 
-export const randomizeRuinParams = (): Partial<RuinParams> => ({
-    pitch: randInt(24, 48),
-    algorithm: ['feedback_pm', 'distort_fold', 'overload'][randInt(0, 2)] as RuinParams['algorithm'],
-    timbre: rand(0, 100),
-    drive: rand(0, 100),
-    fold: rand(0, 100),
-    attack: rand(0.001, 0.01),
-    decay: rand(0.1, 0.5),
-});
+export const randomizeArcaneParams = (): Partial<ArcaneParams> => {
+    const archetypes = ['stab', 'bell', 'drone'];
+    const choice = choose(archetypes);
+    switch(choice) {
+        case 'bell': return { osc2_pitch: choose([12, 19, 24]), mode: 'ring', mod_amount: rand(70, 100), fold: 0, ampEnv: { attack: 0.001, decay: rand(0.3, 0.8), sustain: 0, release: rand(0.2, 0.5) } };
+        case 'drone': return { osc2_pitch: choose([0, 7]), mode: 'pm', mod_amount: rand(10, 40), fold: rand(0, 30), spread: rand(20, 80), ampEnv: { attack: rand(0.5, 2.0), decay: rand(1.0, 3.0), sustain: 1.0, release: rand(1.0, 3.0) } };
+        default: // stab
+            return { osc2_pitch: choose([-12, 7, 12]), mode: 'pm', mod_amount: rand(30, 70), fold: rand(10, 50), ampEnv: { attack: 0.001, decay: rand(0.15, 0.4), sustain: 0, release: rand(0.1, 0.3) } };
+    }
+};
+
+export const randomizeRuinParams = (): Partial<RuinParams> => {
+    const archetypes = ['bass', 'lead', 'fx'];
+    const choice = choose(archetypes);
+    switch(choice) {
+        case 'lead': return { pitch: randInt(48, 72), algorithm: 'distort_fold', timbre: rand(70, 100), drive: rand(60, 90), fold: rand(50, 80), attack: 0.001, decay: rand(0.1, 0.25) };
+        case 'fx': return { pitch: randInt(36, 84), algorithm: 'feedback_pm', timbre: rand(80, 100), drive: rand(20, 80), fold: rand(20, 80), attack: rand(0.05, 0.5), decay: rand(0.5, 2.0) };
+        default: // bass
+            return { pitch: randInt(24, 48), algorithm: 'overload', timbre: rand(60, 90), drive: rand(70, 100), fold: rand(60, 90), attack: 0.001, decay: rand(0.15, 0.3) };
+    }
+};
 
 export const randomizeArtificeParams = (): Partial<ArtificeParams> => ({
     osc1_shape: rand(0, 100),
     osc2_shape: rand(0, 100),
-    osc2_pitch: [-12, 0, 7, 12][randInt(0, 3)],
+    osc2_pitch: choose([-12, 0, 7, 12]),
     fm_amount: rand(0, 100),
     osc_mix: rand(-100, 100),
     noise_level: rand(0, 40),
     filterEnvAmount: rand(-8000, 8000),
-    filter_mode: ['lp_hp_p', 'lp_hp_s', 'bp_bp_p'][randInt(0, 2)] as ArtificeParams['filter_mode'],
+    filter_mode: choose(['lp_hp_p', 'lp_hp_s', 'bp_bp_p']) as ArtificeParams['filter_mode'],
     filter_cutoff: rand(500, 10000),
     filter_res: rand(1, 20),
     filter_spread: rand(-36, 36),
@@ -394,23 +481,26 @@ export const randomizeShiftParams = (): Partial<ShiftParams> => ({
     twist: rand(0, 100),
 });
 
-export const randomizeResonParams = (): Partial<ResonParams> => ({
-    pitch: randInt(48, 84),
-    structure: rand(0, 100),
-    brightness: rand(2000, 16000),
-    decay: rand(0.9, 0.995),
-    material: rand(0, 100),
-    exciter_type: ['noise', 'impulse'][randInt(0, 1)] as ResonParams['exciter_type'],
-});
+export const randomizeResonParams = (): Partial<ResonParams> => {
+    const archetypes = ['wood', 'metal', 'glass'];
+    const choice = choose(archetypes);
+    switch(choice) {
+        case 'wood': return { pitch: randInt(60, 84), structure: rand(70, 100), brightness: rand(4000, 9000), decay: rand(0.85, 0.95), material: rand(70, 100), exciter_type: 'impulse' };
+        case 'glass': return { pitch: randInt(72, 96), structure: rand(0, 20), brightness: rand(12000, 18000), decay: rand(0.96, 0.99), material: rand(20, 50), exciter_type: 'impulse' };
+        default: // metal
+             return { pitch: randInt(48, 72), structure: rand(10, 40), brightness: rand(8000, 14000), decay: rand(0.98, 0.998), material: rand(0, 30), exciter_type: 'impulse' };
+    }
+};
 
 export const randomizeAlloyParams = (): Partial<AlloyParams> => ({
     pitch: randInt(36, 84),
-    ratio: [0.5, 0.75, 1, 1.414, 1.5, 2, 3.5, 4][randInt(0, 7)],
+    ratio: choose([0.5, 0.75, 1, 1.414, 1.5, 2, 3.5, 4]),
     feedback: rand(0, 90),
     mod_level: rand(0, 100),
     mod_attack: rand(0.001, 0.05),
     mod_decay: rand(0.05, 0.3),
 });
+
 
 export const generateWaveformData = async (blob: Blob, points: number): Promise<[number, number][]> => {
     // Stub implementation

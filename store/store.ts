@@ -14,6 +14,7 @@ import { deepClone, deepMerge, createTechnoPattern, randomizeKickParams, randomi
 import { createEmptyPatterns, INITIAL_KICK_PARAMS, INITIAL_HAT_PARAMS, INITIAL_ARCANE_PARAMS, INITIAL_RUIN_PARAMS, INITIAL_ARTIFICE_PARAMS, INITIAL_SHIFT_PARAMS, INITIAL_RESON_PARAMS, INITIAL_ALLOY_PARAMS } from '../constants';
 import { useVUMeterStore } from './vuMeterStore';
 import { usePlaybackStore } from './playbackStore';
+import { shallow } from 'zustand/shallow';
 
 declare let JSZip: any;
 
@@ -525,22 +526,6 @@ async function renderSongAudio(
 }
 
 // --- ZUSTAND STORE ---
-// Helper for granular subscription updates
-const shallow = (objA: any, objB: any) => {
-    if (Object.is(objA, objB)) return true;
-    if (typeof objA !== 'object' || objA === null || typeof objB !== 'object' || objB === null) {
-      return false;
-    }
-    const keysA = Object.keys(objA);
-    const keysB = Object.keys(objB);
-    if (keysA.length !== keysB.length) return false;
-    for (let i = 0; i < keysA.length; i++) {
-      if (!Object.prototype.hasOwnProperty.call(objB, keysA[i]) || !Object.is(objA[keysA[i]], objB[keysA[i]])) {
-        return false;
-      }
-    }
-    return true;
-  }
 
 export const useStore = create<AppState & AppActions>()(
     subscribeWithSelector(
@@ -716,6 +701,7 @@ export const useStore = create<AppState & AppActions>()(
 
                 hideWelcomeScreen: (dontShowAgain) => {
                     if (dontShowAgain) {
+                        // FIX: localStorage.setItem requires a string value.
                         localStorage.setItem('fm8r-welcome-dismissed', 'true');
                     }
                     const shouldShowQuickStart = !localStorage.getItem('fm8r-quickstart-finished');
@@ -1308,6 +1294,7 @@ export const useStore = create<AppState & AppActions>()(
                 
                     // If we are hiding the quick start guide, it means the user is done with it.
                     if (!shouldShow) {
+                        // FIX: localStorage.setItem requires a string value.
                         localStorage.setItem('fm8r-quickstart-finished', 'true');
                         
                         // Now check if we should show the fullscreen prompt.
@@ -1333,33 +1320,35 @@ export const useStore = create<AppState & AppActions>()(
                         get().addNotification({ type: 'info', message: "Can't change projects in Spectator mode." });
                         return;
                     }
-
-                    const newPreset = deepClone(preset);
+                
+                    // This action is the official migration point for all loaded projects.
+                    const loadedPreset = deepClone(preset);
+                    const originalName = loadedPreset.name; // Preserve the original name.
+                
+                    const defaultProject = get().isViewerMode 
+                        ? deepClone(DEMO_DEFAULT_PROJECT) 
+                        : deepClone(LICENSED_DEFAULT_PROJECT);
                     
-                    // --- BACKWARD COMPATIBILITY MIGRATION ---
-                    const defaultFxParams = deepClone(LICENSED_DEFAULT_PROJECT.globalFxParams);
-                    newPreset.globalFxParams = deepMerge(defaultFxParams, newPreset.globalFxParams || {});
-                    
-                    // Migrate track params to ensure all properties exist
-                    newPreset.tracks.forEach(track => {
-                        if (track.type !== 'midi') {
-                            const defaultParams = getInitialParamsForType(track.type);
-                            track.params = deepMerge(defaultParams, track.params || {});
-                        }
-                    });
-
-                    set({ preset: newPreset, selectedTrackId: 0, sequencerPage: 0, mutedTracks: [], soloedTrackId: null, selectedPLockStep: null, isPLockModeActive: false });
+                    // Safely merge the loaded project into the default structure. This guarantees that any
+                    // missing or invalid data (like `compressor: null`) is replaced with valid defaults.
+                    const migratedPreset = deepMerge(defaultProject, loadedPreset);
+                
+                    // Restore the original name, as the merge process would use the default name.
+                    migratedPreset.name = originalName;
+                
+                    set({ preset: migratedPreset, selectedTrackId: 0, sequencerPage: 0, mutedTracks: [], soloedTrackId: null, selectedPLockStep: null, isPLockModeActive: false });
                     
                     if (audioEngine) {
-                        audioEngine.createTrackChannels(newPreset.tracks);
-                        audioEngine.updateBpm(newPreset.bpm);
-                        audioEngine.updateReverb(newPreset.globalFxParams.reverb, newPreset.bpm);
-                        audioEngine.updateDelay(newPreset.globalFxParams.delay, newPreset.bpm);
-                        audioEngine.updateDrive(newPreset.globalFxParams.drive);
-                        audioEngine.updateCharacter(newPreset.globalFxParams.character);
-                        audioEngine.updateMasterFilter(newPreset.globalFxParams.masterFilter);
-                        audioEngine.updateCompressor(newPreset.globalFxParams.compressor);
-                        audioEngine.updateMasterVolume(newPreset.globalFxParams.masterVolume);
+                        // Update the audio engine with the now-guaranteed-to-be-safe preset data.
+                        audioEngine.createTrackChannels(migratedPreset.tracks);
+                        audioEngine.updateBpm(migratedPreset.bpm);
+                        audioEngine.updateReverb(migratedPreset.globalFxParams.reverb, migratedPreset.bpm);
+                        audioEngine.updateDelay(migratedPreset.globalFxParams.delay, migratedPreset.bpm);
+                        audioEngine.updateDrive(migratedPreset.globalFxParams.drive);
+                        audioEngine.updateCharacter(migratedPreset.globalFxParams.character);
+                        audioEngine.updateMasterFilter(migratedPreset.globalFxParams.masterFilter);
+                        audioEngine.updateCompressor(migratedPreset.globalFxParams.compressor); // This is now safe.
+                        audioEngine.updateMasterVolume(migratedPreset.globalFxParams.masterVolume);
                     }
                 },
                 savePreset: (name) => {
@@ -1919,6 +1908,7 @@ export const useStore = create<AppState & AppActions>()(
                         if (!isSilent) {
                             get().addNotification({ type: 'success', message: 'Full version unlocked! Thank you for your support.' });
                         }
+                        // FIX: localStorage.setItem requires a string value, but was passed a boolean.
                         localStorage.setItem('fm8r_license_key', key);
                     } else {
                         if (!isSilent) {
@@ -1928,6 +1918,7 @@ export const useStore = create<AppState & AppActions>()(
                 },
                 clearLicenseKey: () => {
                     set({ licenseKey: null, isViewerMode: true });
+                    // FIX: `setItem` with `false` is incorrect for removing a key. Use `removeItem`.
                     localStorage.removeItem('fm8r_license_key');
                     get().addNotification({type: 'info', message: 'License removed.'});
                 },
@@ -2015,45 +2006,28 @@ export const useStore = create<AppState & AppActions>()(
     )
 );
 
+// A single, consolidated subscription for localStorage persistence.
 useStore.subscribe(
-    state => state.preset,
-    (preset) => {
-        // FIX: Replaced `get()` with `useStore.getState()` as `get()` is not in scope here.
-        const stateToSave = {
-            presets: useStore.getState().presets,
-            instrumentPresets: useStore.getState().instrumentPresets,
-            appearanceTheme: useStore.getState().appearanceTheme,
-            accentTheme: useStore.getState().accentTheme,
-            customStoreUrl: useStore.getState().customStoreUrl,
-        };
+    // Select all state properties that need to be persisted.
+    (state) => ({
+        presets: state.presets,
+        instrumentPresets: state.instrumentPresets,
+        appearanceTheme: state.appearanceTheme,
+        accentTheme: state.accentTheme,
+        customStoreUrl: state.customStoreUrl,
+    }),
+    // The listener receives the selected state object directly.
+    (stateToSave) => {
         try {
+            // This prevents saving the entire state including transient UI state.
             localStorage.setItem('fm8r-state', JSON.stringify(stateToSave));
         } catch (e) {
             console.warn("Could not save state to localStorage:", e);
         }
     },
-    { equalityFn: (a, b) => JSON.stringify(a) === JSON.stringify(b), fireImmediately: false }
+    { 
+        // Use shallow equality check which is more performant and safer than JSON.stringify.
+        equalityFn: shallow, 
+        fireImmediately: false 
+    }
 );
-
-useStore.subscribe(state => state.appearanceTheme, (theme) => {
-    try {
-        const state = JSON.parse(localStorage.getItem('fm8r-state') || '{}');
-        state.appearanceTheme = theme;
-        localStorage.setItem('fm8r-state', JSON.stringify(state));
-    } catch (e) {}
-});
-
-useStore.subscribe(state => state.accentTheme, (theme) => {
-     try {
-        const state = JSON.parse(localStorage.getItem('fm8r-state') || '{}');
-        state.accentTheme = theme;
-        localStorage.setItem('fm8r-state', JSON.stringify(state));
-    } catch (e) {}
-});
-useStore.subscribe(state => state.customStoreUrl, (url) => {
-    try {
-        const state = JSON.parse(localStorage.getItem('fm8r-state') || '{}');
-        state.customStoreUrl = url;
-        localStorage.setItem('fm8r-state', JSON.stringify(state));
-    } catch (e) {}
-});

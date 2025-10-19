@@ -1,8 +1,8 @@
 import { 
     Track, StepState, PLocks, GlobalFXParams, CompressorParams, FXSends, Envelope, TrackType, MidiOutParams, LFOParams
 } from './types';
-// FIX: Import 'noteToFreq' to resolve 'Cannot find name' errors.
-import { getAutomationValue, noteToFreq } from './utils';
+// FIX: Import 'noteToFreq' and 'deepClone' to resolve 'Cannot find name' errors and implement the crucial fix.
+import { getAutomationValue, noteToFreq, deepClone } from './utils';
 
 // Helper to ensure values are finite numbers
 const finite = (value: any, fallback: number): number => {
@@ -419,7 +419,9 @@ export class AudioEngine {
         }
 
         this.sidechainSourceId = sidechainSource;
-        this.sidechainParams = params;
+        // FIX: Deep clone the params object to prevent accessing a revoked proxy.
+        // This was the root cause of the crash when sidechain was active.
+        this.sidechainParams = deepClone(params);
     }
     updateMasterFilter(params: GlobalFXParams['masterFilter']) { const now = this.audioContext.currentTime; this.masterFilter.type = params.type; this.masterFilter.frequency.setTargetAtTime(finite(params.cutoff, 20000), now, 0.01); this.masterFilter.Q.setTargetAtTime(finite(params.resonance, 1), now, 0.01); }
     updateLiveParameter(trackId: number, path: string, value: any) { /* This would require a more complex voice architecture; for now, changes apply to new notes */ }
