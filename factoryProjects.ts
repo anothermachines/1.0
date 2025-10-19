@@ -74,7 +74,7 @@ export const LICENSED_DEFAULT_PROJECT: Preset = {
     version: '1.2'
 };
 
-const stygianPath: Preset = {
+export const stygianPath: Preset = {
   name: "Stygian Path",
   bpm: 124,
   globalFxParams: {
@@ -98,7 +98,7 @@ const stygianPath: Preset = {
   ]
 };
 
-const systemCollapse: Preset = {
+export const systemCollapse: Preset = {
   name: "System Collapse",
   bpm: 142,
   globalFxParams: {
@@ -122,7 +122,7 @@ const systemCollapse: Preset = {
   ]
 };
 
-const polyrhythmicRitual: Preset = {
+export const polyrhythmicRitual: Preset = {
   name: "Polyrhythmic Ritual",
   bpm: 130,
   globalFxParams: {
@@ -146,7 +146,7 @@ const polyrhythmicRitual: Preset = {
   ]
 };
 
-const ethericDub: Preset = {
+export const ethericDub: Preset = {
     name: "Etheric Dub",
     bpm: 126,
     globalFxParams: {
@@ -175,7 +175,7 @@ const ethericDub: Preset = {
     ]
 };
 
-const machineCult: Preset = {
+export const machineCult: Preset = {
     name: "Machine Cult",
     bpm: 138,
     globalFxParams: {
@@ -188,83 +188,73 @@ const machineCult: Preset = {
         masterVolume: 0.9,
     },
     tracks: [
-        { ...deepClone(INITIAL_TRACKS[0]), name: 'Hammer Kick', params: { ...INITIAL_KICK_PARAMS, decay: 0.3, impact: 100, character: 90 }, patterns: [createPatternFromSequence([1,null,null,null,1,null,null,null,1,null,null,null,1,null,null,null], 'C2')], volume: 0.45, fxSends: { drive: 0.4, reverb: 0.1, delay: 0, sidechain: 0 } },
-        { ...deepClone(INITIAL_TRACKS[1]), name: 'Metal Hit', params: { ...INITIAL_ALLOY_PARAMS, pitch: 60, ratio: 1.337, feedback: 85, mod_level: 90, ampEnv: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.08 }, filter: { type: 'notch', cutoff: 2500, resonance: 8 } }, type: 'alloy', patternLength: 7, patterns: [createPatternFromSequence([null,null,0.9,null,null,0.9,null], 'C5')], fxSends: { delay: 0.7, reverb: 0.5, drive: 0.2, sidechain: 0 } },
-        { ...deepClone(INITIAL_TRACKS[2]), name: 'Sync Bass', params: { ...INITIAL_ARCANE_PARAMS, mode: 'hard_sync', osc1_shape: 80, osc2_pitch: 7.05, mod_amount: 80, fold: 25, ampEnv: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.08 } }, type: 'arcane', patternLength: 15, patterns: [(() => {
-            const pattern = createPatternFromSequence([0.9,null,null,0.8,null,null,0.9,null,null,0.8,null,null,0.9,null,null], 'G#1');
-            pattern[2].pLocks = { arcaneParams: { ampEnv: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.08 }, fold: 90 } };
-            pattern[6].pLocks = { arcaneParams: { fold: 40 } };
-            pattern[10].pLocks = { arcaneParams: { osc2_pitch: 19, mod_amount: 95 } };
-            return pattern;
-        })()], fxSends: { drive: 0.3, sidechain: 0.8, reverb: 0.2, delay: 0.4 }, volume: 0.4 },
-        { ...deepClone(INITIAL_TRACKS[3]), name: 'Steam', params: { ...INITIAL_ARTIFICE_PARAMS, noise_level: 100, filter_mode: 'bp_bp_p', filter_cutoff: 4000, filter_res: 20, ampEnv: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.04 } }, type: 'artifice', patternLength: 13, patterns: [createPatternFromSequence([null,null,null,0.7,null,null,null,0.7,null,null,null,0.7,null], 'C4')], fxSends: { delay: 0.8, reverb: 0.7, drive: 0.1, sidechain: 0.1 } },
-        { ...deepClone(INITIAL_TRACKS[4]), name: 'Glitch Lead', params: { ...INITIAL_SHIFT_PARAMS, pitch: 72, table: 3, position: 80, bend: 90, twist: 40, ampEnv: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.04 } }, type: 'shift', patternLength: 16, patterns: [createPatternFromSequence(Array(16).fill(null).map((_, i) => [3, 7, 13].includes(i) ? 0.9 : null), 'C6')], fxSends: { delay: 0.6, reverb: 0.4, drive: 0, sidechain: 0.2 } },
+        { ...deepClone(INITIAL_TRACKS[0]), name: 'Slam Kick', params: { ...INITIAL_KICK_PARAMS, decay: 0.25, impact: 100, character: 90, tone: 60 }, patterns: [createPatternFromSequence([1,null,0.7,null,1,null,1,null,1,null,0.7,null,1,null,1,null], 'C2')], volume: 0.42, fxSends: { drive: 0.4, reverb: 0.1, delay: 0, sidechain: 0 } },
+        { ...deepClone(INITIAL_TRACKS[1]), name: '909 Ride', params: { ...INITIAL_HAT_PARAMS, tone: 6000, decay: 0.8, character: 100, spread: 1.2, filter: { type: 'bandpass', cutoff: 7500, resonance: 15 } }, type: 'hat', patterns: [createPatternFromSequence([null,null,0.8,null,null,null,0.8,null,null,null,0.8,null,null,null,0.8,null], 'C5')], fxSends: { reverb: 0.3, delay: 0.5, drive: 0.1, sidechain: 0 } },
+        { ...deepClone(INITIAL_TRACKS[2]), name: 'Grinder', params: { ...INITIAL_RUIN_PARAMS, pitch: 48, algorithm: 'overload', timbre: 80, drive: 95, fold: 75, decay: 0.1, filter: { type: 'lowpass', cutoff: 1500, resonance: 8 } }, patterns: [createPatternFromSequence(Array(16).fill(null).map((_, i) => i % 2 !== 0 ? 0.7 : null), 'G#2')], fxSends: { drive: 0.2, reverb: 0.2, delay: 0.3, sidechain: 0.8 } },
+        { ...deepClone(INITIAL_TRACKS[3]), name: 'FM Clang', params: { ...INITIAL_ALLOY_PARAMS, pitch: 62, ratio: 2.8, feedback: 70, mod_level: 80, mod_decay: 0.07 }, type: 'alloy', patternLength: 13, patterns: [createPatternFromSequence(Array(13).fill(null).map((_, i) => i % 4 === 2 ? 0.9 : null), 'D#5')], fxSends: { delay: 0.7, reverb: 0.5, drive: 0.1, sidechain: 0.1 } },
+        { ...deepClone(INITIAL_TRACKS[4]), name: 'Noise Sweep', params: { ...INITIAL_ARTIFICE_PARAMS, noise_level: 100, filter_mode: 'bp_bp_p', filter_cutoff: 1000, filter_res: 20, ampEnv: { attack: 0.001, decay: 0.5, sustain: 0, release: 0.3 }, lfo1: { waveform: 'sawtooth', rate: 0.1, rateSync: false, rateDivision: 1, depth: 8000, destination: 'artifice.filter_cutoff', retrigger: false } }, type: 'artifice', patterns: [createPatternFromSequence([0.8], 'C4', 0.8, 16)], fxSends: { reverb: 0.4, delay: 0.5, drive: 0, sidechain: 0.5 }, volume: 0.18 },
         { ...deepClone(INITIAL_TRACKS[5]), volume: 0 },
         { ...deepClone(INITIAL_TRACKS[6]), volume: 0 },
         { ...deepClone(INITIAL_TRACKS[7]), volume: 0 },
     ]
 };
 
-const fractalGateway: Preset = {
-    name: "Fractal Gateway",
-    bpm: 137,
-    globalFxParams: {
-        reverb: { decay: 6.0, mix: 0.5, preDelay: 0.01, preDelaySync: false, preDelayDivision: 1, damping: 1800 },
-        delay: { time: 0.5, feedback: 0.72, mix: 0.45, timeSync: true, timeDivision: 0.75, tone: 2500 },
-        drive: { amount: 30, tone: 6000, mix: 0.15 },
-        character: { mode: 'saturate', amount: 45, mix: 0.25 },
-        masterFilter: { type: 'lowpass', cutoff: 20000, resonance: 1 },
-        compressor: { enabled: true, threshold: -22, ratio: 7, knee: 12, attack: 0.003, release: 0.25, makeup: 6, sidechainSource: 0 },
-        masterVolume: 0.9,
-    },
-    tracks: [
-        { ...deepClone(INITIAL_TRACKS[0]), name: 'Solid Kick', params: { ...INITIAL_KICK_PARAMS, tune: 42, decay: 0.4, impact: 95, character: 40 }, patterns: [createPatternFromSequence([1,null,null,null,1,null,null,null,1,null,null,null,1,null,null,null], 'C2')], volume: 0.48 },
-        { ...deepClone(INITIAL_TRACKS[1]), name: 'Sub Bass', params: { ...INITIAL_RUIN_PARAMS, pitch: 38, algorithm: 'feedback_pm', timbre: 20, drive: 15, fold: 0, decay: 0.12, filter: {type: 'lowpass', cutoff: 180, resonance: 9} }, patternLength: 15, patterns: [createPatternFromSequence([0.9,null,null,0.8,null,null,null,0.9,null,null,0.8,null,null,null,null], 'B0')], fxSends: { sidechain: 1.0, reverb: 0.3, delay: 0.2, drive: 0.1}, volume: 0.45 },
-        { ...deepClone(INITIAL_TRACKS[2]), name: 'Metal Bell', params: { ...INITIAL_ALLOY_PARAMS, pitch: 68, ratio: 2.8, feedback: 70, mod_level: 80, mod_decay: 0.08 }, type: 'alloy', patternLength: 7, patterns: [createPatternFromSequence([null,null,0.8,null,null,0.8,null], 'F#5')], fxSends: { delay: 0.9, reverb: 0.7, drive: 0, sidechain: 0 } },
-        { ...deepClone(INITIAL_TRACKS[3]), name: 'Wood Thing', params: { ...INITIAL_RESON_PARAMS, pitch: 70, structure: 85, brightness: 11000, decay: 0.92, material: 85, exciter_type: 'impulse' }, type: 'reson', patternLength: 5, patterns: [createPatternFromSequence([null,0.8,null,0.7,null], 'A5')], fxSends: { delay: 0.8, reverb: 0.6, drive: 0, sidechain: 0 } },
-        { ...deepClone(INITIAL_TRACKS[4]), name: 'Noise Filter', params: { ...INITIAL_ARTIFICE_PARAMS, noise_level: 100, filter_mode: 'bp_bp_p', filter_cutoff: 3000, filter_res: 18, lfo1: { waveform: 'sawtooth', rate: 0.1, rateSync: false, rateDivision: 1, depth: 2500, destination: 'artifice.filter_cutoff', retrigger: false } }, type: 'artifice', patternLength: 11, patterns: [createPatternFromSequence(Array(11).fill(0.7), 'C4')], fxSends: { reverb: 0.5, delay: 0.6, drive: 0, sidechain: 0.2 }, volume: 0.25 },
-        { ...deepClone(INITIAL_TRACKS[5]), volume: 0 },
-        { ...deepClone(INITIAL_TRACKS[6]), volume: 0 },
-        { ...deepClone(INITIAL_TRACKS[7]), volume: 0 },
-    ]
+export const fractalGateway: Preset = {
+  name: "Fractal Gateway",
+  bpm: 135,
+  globalFxParams: {
+    reverb: { decay: 6, mix: 0.4, preDelay: 0.02, preDelaySync: false, preDelayDivision: 1, damping: 3000 },
+    delay: { time: 0.5, feedback: 0.72, mix: 0.45, timeSync: true, timeDivision: 0.375, tone: 3800 },
+    drive: { amount: 25, tone: 6000, mix: 0.15 },
+    character: { mode: 'saturate', amount: 30, mix: 0.2 },
+    masterFilter: { type: 'lowpass', cutoff: 20000, resonance: 1 },
+    compressor: { enabled: true, threshold: -21, ratio: 5, knee: 12, attack: 0.015, release: 0.4, makeup: 5, sidechainSource: 0 },
+    masterVolume: 0.9,
+  },
+  tracks: [
+    { ...deepClone(INITIAL_TRACKS[0]), name: 'Psy Kick', params: { ...INITIAL_KICK_PARAMS, tune: 42, decay: 0.3, impact: 95, tone: 85, character: 20 }, patterns: [createPatternFromSequence([1,null,null,null,1,null,null,null,1,null,null,null,1,null,null,null], 'C2')], volume: 0.48 },
+    { ...deepClone(INITIAL_TRACKS[1]), name: 'Psy Bass', params: { ...INITIAL_RUIN_PARAMS, pitch: 30, algorithm: 'distort_fold', timbre: 65, drive: 75, fold: 40, decay: 0.08, filter: { type: 'lowpass', cutoff: 600, resonance: 7 } }, patterns: [createPatternFromSequence([null,0.9,0.8,0.9,null,0.9,0.8,0.9,null,0.9,0.8,0.9,null,0.9,0.8,0.9], 'F#1')], fxSends: { sidechain: 1.0, drive: 0.1, reverb: 0.2, delay: 0.3 }, volume: 0.38 },
+    { ...deepClone(INITIAL_TRACKS[2]), name: 'Warp Stab', params: { ...INITIAL_SHIFT_PARAMS, pitch: 54, table: 3, position: 20, bend: 80, twist: 75, ampEnv: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.15 }, filter: { type: 'bandpass', cutoff: 2500, resonance: 9 } }, type: 'shift', patterns: [createPatternFromSequence(Array(16).fill(null).map((_, i) => i % 4 === 2 ? 0.8 : null), 'F#3')], fxSends: { delay: 0.8, reverb: 0.6, drive: 0, sidechain: 0.1 } },
+    { ...deepClone(INITIAL_TRACKS[3]), name: 'FM Sequence', params: { ...INITIAL_ALLOY_PARAMS, pitch: 66, ratio: 1.5, mod_decay: 0.06 }, type: 'alloy', patterns: [(() => {
+        const pattern = createPatternFromSequence(Array(16).fill(null).map((_, i) => i % 2 !== 0 ? 0.7 : null), 'F#4');
+        pattern[3].notes = ['G#4'];
+        pattern[7].notes = ['A#4'];
+        pattern[11].notes = ['G#4'];
+        pattern[15].notes = ['C#5'];
+        return pattern;
+    })()], fxSends: { delay: 0.7, reverb: 0.5, drive: 0, sidechain: 0.1 } },
+    { ...deepClone(INITIAL_TRACKS[4]), name: 'Alien Chat', params: { ...INITIAL_RESON_PARAMS, pitch: 78, structure: 5, brightness: 16000, decay: 0.85, material: 15, exciter_type: 'impulse', ampEnv: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.03 } }, type: 'reson', patterns: [createPatternFromSequence(Array(16).fill(null).map((_, i) => [6,13].includes(i) ? 0.8 : null), 'F#6')], fxSends: { delay: 0.9, reverb: 0.8, drive: 0, sidechain: 0 } },
+    { ...deepClone(INITIAL_TRACKS[5]), volume: 0 },
+    { ...deepClone(INITIAL_TRACKS[6]), volume: 0 },
+    { ...deepClone(INITIAL_TRACKS[7]), volume: 0 },
+  ]
 };
 
-const quantumEntanglement: Preset = {
-    name: "Quantum Entanglement",
-    bpm: 141,
-    globalFxParams: {
-        reverb: { decay: 3.5, mix: 0.3, preDelay: 0.01, preDelaySync: false, preDelayDivision: 1, damping: 3000 },
-        delay: { time: 0.5, feedback: 0.6, mix: 0.35, timeSync: true, timeDivision: 0.375, tone: 4500 },
-        drive: { amount: 60, tone: 4000, mix: 0.25 },
-        character: { mode: 'overdrive', amount: 70, mix: 0.5 },
-        masterFilter: { type: 'lowpass', cutoff: 20000, resonance: 1 },
-        compressor: { enabled: true, threshold: -16, ratio: 10, knee: 8, attack: 0.001, release: 0.09, makeup: 8, sidechainSource: 0 },
-        masterVolume: 0.9,
-    },
-    tracks: [
-        { ...deepClone(INITIAL_TRACKS[0]), name: 'Overload Kick', params: { ...INITIAL_KICK_PARAMS, decay: 0.28, impact: 100, character: 95 }, patterns: [createPatternFromSequence([1,null,null,null,1,null,null,null,1,null,null,null,1,null,null,null], 'C2')], volume: 0.4, fxSends: { drive: 0.5, reverb: 0, delay: 0, sidechain: 0 } },
-        { ...deepClone(INITIAL_TRACKS[1]), name: 'Main Seq', params: { ...INITIAL_ARCANE_PARAMS, osc1_shape: 40, osc2_pitch: 19, mode: 'ring', mod_amount: 85, fold: 80, filter: {type: 'lowpass', cutoff: 3500, resonance: 7} }, type: 'arcane', patternLength: 15, patterns: [(() => {
-            const pattern = createPatternFromSequence([0.9,null,0.8,null,0.9,null,0.8,null,0.9,null,0.8,null,null,0.9,null], 'F#2');
-            pattern[2].pLocks = { arcaneParams: { fold: 100, osc1_shape: 80 } };
-            pattern[4].pLocks = { arcaneParams: { filter: { type: 'lowpass', cutoff: 8000, resonance: 7 } } };
-            pattern[6].pLocks = { arcaneParams: { fold: 50, osc2_pitch: 12 } };
-            pattern[8].pLocks = { arcaneParams: { mod_amount: 50, filter: { type: 'lowpass', cutoff: 2000, resonance: 7 } } };
-            pattern[10].pLocks = { arcaneParams: { mod_amount: 100 } };
-            return pattern;
-        })()], fxSends: { delay: 0.6, reverb: 0.4, drive: 0.2, sidechain: 0.6 }, volume: 0.35 },
-        { ...deepClone(INITIAL_TRACKS[2]), name: 'Scrape', params: { ...INITIAL_ALLOY_PARAMS, pitch: 65, ratio: 0.77, feedback: 95, mod_decay: 0.05, mod_level: 90 }, type: 'alloy', patternLength: 9, patterns: [createPatternFromSequence([null,0.8,null,null,0.8,null,null,0.8,null], 'D#5')], fxSends: { delay: 0.8, reverb: 0.7, drive: 0.1, sidechain: 0 } },
-        { ...deepClone(INITIAL_TRACKS[3]), name: 'Ruin Hit', params: { ...INITIAL_RUIN_PARAMS, pitch: 45, algorithm: 'overload', timbre: 90, drive: 90, fold: 90, decay: 0.15 }, patternLength: 13, patterns: [createPatternFromSequence([null,null,null,null,0.9,null,null,null,null,null,null,null,null], 'A#2')], fxSends: { delay: 0.5, reverb: 0.3, drive: 0.3, sidechain: 0.1 } },
-        { ...deepClone(INITIAL_TRACKS[4]), name: 'Fast Hat', params: { ...INITIAL_HAT_PARAMS, tone: 9000, decay: 0.04, character: 85, spread: 2.2, filter: {type: 'highpass', cutoff: 7000, resonance: 3} }, type: 'hat', patterns: [(() => {
-            const p = createPatternFromSequence(Array(16).fill(null).map((_, i) => i % 2 !== 0 ? (0.6 + Math.random() * 0.2) : null), 'C5');
-            p[5].condition = { type: 'a:b', a: 2, b: 3 };
-            p[13].condition = { type: 'a:b', a: 2, b: 3 };
-            return p;
-        })()], fxSends: {reverb: 0.3, delay: 0.5, drive: 0.1, sidechain: 0}, volume: 0.32},
-        { ...deepClone(INITIAL_TRACKS[5]), name: 'Drone', params: { ...INITIAL_SHIFT_PARAMS, pitch: 36, table: 1, ampEnv: { attack: 3.0, decay: 2.0, sustain: 1.0, release: 4.0 }, filter: { type: 'lowpass', cutoff: 600, resonance: 8 }, lfo1: { waveform: 'sine', rate: 0.07, rateSync: false, rateDivision: 1, depth: 1000, destination: 'shift.position', retrigger: false } }, type: 'shift', patterns: [createPatternFromSequence([0.7], 'F#1', 0.7, 16)], fxSends: { reverb: 1.0, delay: 0.8, drive: 0, sidechain: 0.6 }, volume: 0.2 },
-        { ...deepClone(INITIAL_TRACKS[6]), volume: 0 },
-        { ...deepClone(INITIAL_TRACKS[7]), volume: 0 },
-    ]
+export const quantumEntanglement: Preset = {
+  name: "Quantum Entanglement",
+  bpm: 136,
+  globalFxParams: {
+    reverb: { decay: 7, mix: 0.45, preDelay: 0.025, preDelaySync: false, preDelayDivision: 1, damping: 2200 },
+    delay: { time: 0.5, feedback: 0.7, mix: 0.35, timeSync: true, timeDivision: 0.75, tone: 3000 },
+    drive: { amount: 10, tone: 8000, mix: 0.1 },
+    character: { mode: 'tape', amount: 25, mix: 0.2 },
+    masterFilter: { type: 'lowpass', cutoff: 20000, resonance: 1 },
+    compressor: { enabled: true, threshold: -23, ratio: 4.5, knee: 10, attack: 0.02, release: 0.5, makeup: 4, sidechainSource: 0 },
+    masterVolume: 0.9,
+  },
+  tracks: [
+    { ...deepClone(INITIAL_TRACKS[0]), name: 'Quantum Kick', params: { ...INITIAL_KICK_PARAMS, tune: 41, decay: 0.4, impact: 92 }, patterns: [createPatternFromSequence([1,null,null,null,1,null,null,null,1,null,null,null,1,null,null,null], 'C2')], volume: 0.45 },
+    { ...deepClone(INITIAL_TRACKS[1]), name: 'Phase Hat', params: { ...INITIAL_HAT_PARAMS, character: 85, filter: { type: 'notch', cutoff: 5000, resonance: 15 } }, patterns: [createPatternFromSequence(Array(16).fill(null).map((_, i) => i % 2 !== 0 ? 0.7 : null), 'C5')], fxSends: { delay: 0.6, reverb: 0.4, drive: 0, sidechain: 0 } },
+    { ...deepClone(INITIAL_TRACKS[2]), name: 'Arp Sequence', params: { ...INITIAL_ARCANE_PARAMS, mode: 'pm', fold: 0, ampEnv: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.08 }, filter: { type: 'lowpass', cutoff: 2500, resonance: 8 } }, patterns: [(() => {
+        const pattern = createPatternFromSequence(Array(16).fill(0.8), 'G3');
+        const notes = ['G3', 'A#3', 'D4', 'G3', 'D4', 'F4', 'A#3', 'G3'];
+        pattern.forEach((step, i) => { if(step.active) step.notes = [notes[i % notes.length]]; });
+        return pattern;
+    })()], fxSends: { delay: 0.7, reverb: 0.5, drive: 0, sidechain: 0.3 }, volume: 0.3 },
+    { ...deepClone(INITIAL_TRACKS[3]), name: 'Atmo Drone', params: { ...INITIAL_SHIFT_PARAMS, pitch: 31, ampEnv: { attack: 4.0, decay: 2.0, sustain: 1.0, release: 4.0 }, filter: { type: 'lowpass', cutoff: 400, resonance: 7 }, lfo1: { waveform: 'sine', rate: 0.03, rateSync: false, rateDivision: 1, depth: 1000, destination: 'shift.position', retrigger: false } }, type: 'shift', patterns: [createPatternFromSequence([0.6], 'G1', 0.6, 16)], fxSends: { reverb: 1.0, delay: 0.7, drive: 0, sidechain: 0.9 }, volume: 0.2 },
+    { ...deepClone(INITIAL_TRACKS[4]), name: 'Bleep', params: { ...INITIAL_ALLOY_PARAMS, pitch: 79, ratio: 1.5, mod_decay: 0.05 }, type: 'alloy', patterns: [createPatternFromSequence(Array(16).fill(null).map((_, i) => i === 11 ? 0.9 : null), 'G6')], fxSends: { delay: 0.8, reverb: 0.7, drive: 0, sidechain: 0 } },
+    { ...deepClone(INITIAL_TRACKS[5]), volume: 0 },
+    { ...deepClone(INITIAL_TRACKS[6]), volume: 0 },
+    { ...deepClone(INITIAL_TRACKS[7]), volume: 0 },
+  ]
 };
-
-
-export { stygianPath, systemCollapse, polyrhythmicRitual, ethericDub, machineCult, fractalGateway, quantumEntanglement };
