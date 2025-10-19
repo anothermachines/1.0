@@ -891,8 +891,7 @@ export const useStore = create<AppState & AppActions>()(
                         }
                     });
                 },
-// FIX: Implement the handleMidiMessage function which was previously missing. This function is critical for MIDI mapping to work correctly.
-                handleMidiMessage: (mapping, value, command) => {
+                handleMidiMessage: (mapping: MidiMapping, value: number, command: number) => {
                     if (get().isSpectator) {
                         get().triggerViewerModeInteraction();
                         return;

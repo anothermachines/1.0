@@ -151,7 +151,7 @@ export const ethericDub: Preset = {
     bpm: 126,
     globalFxParams: {
         reverb: { decay: 9.0, mix: 0.6, preDelay: 0.03, preDelaySync: false, preDelayDivision: 1, damping: 1200 },
-        delay: { time: 0.5, feedback: 0.8, mix: 0.5, timeSync: true, timeDivision: 0.75, tone: 1800 },
+        delay: { time: 0.5, feedback: 0.72, mix: 0.45, timeSync: true, timeDivision: 0.75, tone: 3800 },
         drive: { amount: 10, tone: 7000, mix: 0.05 },
         character: { mode: 'tape', amount: 40, mix: 0.3 },
         masterFilter: { type: 'lowpass', cutoff: 20000, resonance: 1 },
