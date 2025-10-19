@@ -46,12 +46,6 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onStart }) => {
     onStart(dontShowAgain);
   };
 
-  const handleSkip = () => {
-    // This is the key: mark the guide as finished before starting.
-    localStorage.setItem('fm8r-quickstart-finished', 'true');
-    onStart(dontShowAgain);
-  };
-
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
       <div 
@@ -76,14 +70,6 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onStart }) => {
           style={{ animation: 'start-button-throb 2.5s infinite 3s, fade-in 0.5s ease 3s forwards', opacity: 0 }}
         >
           START ENGINE
-        </button>
-
-        <button
-          onClick={handleSkip}
-          className="mt-4 text-sm text-neutral-400 hover:text-white hover:underline transition-colors animate-fade-in"
-          style={{ animationDelay: '3.2s', opacity: 0 }}
-        >
-          or, Jump Right In
         </button>
         
         <div className="mt-6 flex items-center animate-fade-in" style={{ animationDelay: '3.5s', opacity: 0 }}>
