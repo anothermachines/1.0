@@ -261,7 +261,6 @@ function scheduler() {
                     const clipDurationSeconds = clip.duration * secondsPerBeat;
 
                     const firstStepInWindow = Math.floor(Math.max(0, scheduleWindowStart - clipStartSeconds) / secondsPerStep);
-                    // FIX: Replaced undefined `endTime` with `scheduleWindowEnd`.
                     const lastStepInWindow = Math.ceil(Math.max(0, scheduleWindowEnd - clipStartSeconds) / secondsPerStep);
 
                     for (let step = firstStepInWindow; step < lastStepInWindow; step++) {

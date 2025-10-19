@@ -222,58 +222,58 @@ const CenterPanel: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-    const {
-        init, mainView,
-        showWelcomeScreen, hideWelcomeScreen, showQuickStart, toggleQuickStart,
-        isPresetManagerOpen, togglePresetManager, isExportModalOpen, toggleExportModal,
-        isStoreOpen, toggleStore, isSettingsModalOpen, toggleSettingsModal,
-        isManualOpen, toggleManual,
-        handleMidiMessage,
-        appearanceTheme, setAppearanceTheme, accentTheme, setAccentTheme,
-        isExporting, exportProgress, isShareJamOpen, toggleShareJamModal,
-        setMidiOutputs, selectedPLockStep, copyStep, pasteStep, copyPattern, pastePattern,
-        audioEngineInstanceId, setAudioOutputDevices, isViewerMode, toggleLicenseModal,
-        isLicenseModalOpen, showFullscreenPrompt
-    } = useStore(state => ({
-        init: state.init,
-        mainView: state.mainView,
+    // Performance: Split selectors into smaller, more focused hooks.
+    const init = useStore(state => state.init);
+    const mainView = useStore(state => state.mainView);
+    const { showWelcomeScreen, hideWelcomeScreen, showQuickStart, toggleQuickStart, showFullscreenPrompt } = useStore(state => ({
         showWelcomeScreen: state.showWelcomeScreen,
         hideWelcomeScreen: state.hideWelcomeScreen,
         showQuickStart: state.showQuickStart,
         toggleQuickStart: state.toggleQuickStart,
+        showFullscreenPrompt: state.showFullscreenPrompt,
+    }), shallow);
+    const { isPresetManagerOpen, isExportModalOpen, isStoreOpen, isSettingsModalOpen, isManualOpen, isLicenseModalOpen, isShareJamOpen } = useStore(state => ({
         isPresetManagerOpen: state.isPresetManagerOpen,
-        togglePresetManager: state.togglePresetManager,
         isExportModalOpen: state.isExportModalOpen,
-        toggleExportModal: state.toggleExportModal,
         isStoreOpen: state.isStoreOpen,
-        toggleStore: state.toggleStore,
         isSettingsModalOpen: state.isSettingsModalOpen,
-        toggleSettingsModal: state.toggleSettingsModal,
         isManualOpen: state.isManualOpen,
+        isLicenseModalOpen: state.isLicenseModalOpen,
+        isShareJamOpen: state.isShareJamOpen,
+    }), shallow);
+     const { togglePresetManager, toggleExportModal, toggleStore, toggleSettingsModal, toggleManual, toggleLicenseModal, toggleShareJamModal } = useStore(state => ({
+        togglePresetManager: state.togglePresetManager,
+        toggleExportModal: state.toggleExportModal,
+        toggleStore: state.toggleStore,
+        toggleSettingsModal: state.toggleSettingsModal,
         toggleManual: state.toggleManual,
-        handleMidiMessage: state.handleMidiMessage,
+        toggleLicenseModal: state.toggleLicenseModal,
+        toggleShareJamModal: state.toggleShareJamModal,
+    }), shallow);
+    const { appearanceTheme, setAppearanceTheme, accentTheme, setAccentTheme } = useStore(state => ({
         appearanceTheme: state.appearanceTheme,
         setAppearanceTheme: state.setAppearanceTheme,
         accentTheme: state.accentTheme,
         setAccentTheme: state.setAccentTheme,
+    }), shallow);
+    const { isExporting, exportProgress } = useStore(state => ({
         isExporting: state.isExporting,
-        exportProgress: state.exportProgress,
-        isShareJamOpen: state.isShareJamOpen,
-        toggleShareJamModal: state.toggleShareJamModal,
+        exportProgress: state.exportProgress
+    }), shallow);
+    const { setMidiOutputs, setAudioOutputDevices, audioEngineInstanceId, isViewerMode } = useStore(state => ({
         setMidiOutputs: state.setMidiOutputs,
+        setAudioOutputDevices: state.setAudioOutputDevices,
+        audioEngineInstanceId: state.audioEngineInstanceId,
+        isViewerMode: state.isViewerMode,
+    }), shallow);
+     const { selectedPLockStep, copyStep, pasteStep, copyPattern, pastePattern } = useStore(state => ({
         selectedPLockStep: state.selectedPLockStep,
         copyStep: state.copyStep,
         pasteStep: state.pasteStep,
         copyPattern: state.copyPattern,
         pastePattern: state.pastePattern,
-        audioEngineInstanceId: state.audioEngineInstanceId,
-        setAudioOutputDevices: state.setAudioOutputDevices,
-        isViewerMode: state.isViewerMode,
-        toggleLicenseModal: state.toggleLicenseModal,
-        isLicenseModalOpen: state.isLicenseModalOpen,
-        showFullscreenPrompt: state.showFullscreenPrompt,
     }), shallow);
-    
+
     const midiContext = React.useContext(MidiContext);
     const togglePlay = usePlaybackStore(state => state.togglePlay);
 

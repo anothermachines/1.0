@@ -19,6 +19,7 @@ const KICK_PRESETS: InstrumentPreset[] = [
     createPreset('kick', 'DHT - Hardtek', { tune: 50, decay: 0.2, impact: 100, tone: 85, character: 85, ampEnv: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.1 }, filter: { type: 'lowpass', cutoff: 20000, resonance: 1 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('kick', 'DHT - Minimal Click', { tune: 62, decay: 0.1, impact: 75, tone: 100, character: 0, ampEnv: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.05 }, filter: { type: 'lowpass', cutoff: 20000, resonance: 1 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('kick', 'DHT - Tunnel Rumble', { tune: 37, decay: 2.5, impact: 80, tone: 10, character: 70, ampEnv: { attack: 0.005, decay: 2.5, sustain: 0, release: 1.5 }, filter: { type: 'lowpass', cutoff: 150, resonance: 9 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
+    createPreset('kick', 'MC - Slam Kick', { tune: 44, decay: 0.25, impact: 100, character: 95, tone: 60, ampEnv: { attack: 0.001, decay: 0.25, sustain: 0, release: 0.1 }, filter: { type: 'lowpass', cutoff: 16000, resonance: 2 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
 ];
 
 const HAT_PRESETS: InstrumentPreset[] = [
@@ -37,6 +38,7 @@ const HAT_PRESETS: InstrumentPreset[] = [
     createPreset('hat', 'DHT - Short Crash', { tone: 7000, decay: 1.2, character: 90, spread: 1.5, ampEnv: { attack: 0.001, decay: 1.2, sustain: 0, release: 0.5 }, filter: { type: 'highpass', cutoff: 500, resonance: 5 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('hat', 'DHT - Tambourine', { tone: 9000, decay: 0.1, character: 85, spread: 1.1, ampEnv: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.08 }, filter: { type: 'bandpass', cutoff: 9000, resonance: 11 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('hat', 'DHT - Lo-Fi Grit', { tone: 6500, decay: 0.07, character: 95, spread: 2.8, ampEnv: { attack: 0.001, decay: 0.07, sustain: 0, release: 0.05 }, filter: { type: 'bandpass', cutoff: 7000, resonance: 7 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
+    createPreset('hat', 'MC - 909 Ride', { tone: 6000, decay: 0.7, character: 100, spread: 1.2, ampEnv: { attack: 0.001, decay: 0.7, sustain: 0, release: 0.4 }, filter: { type: 'bandpass', cutoff: 7500, resonance: 15 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
 ];
 
 const RUIN_PRESETS: InstrumentPreset[] = [
@@ -50,6 +52,7 @@ const RUIN_PRESETS: InstrumentPreset[] = [
     createPreset('ruin', 'DHT - Resonant Drone', { pitch: 36, algorithm: 'feedback_pm', timbre: 98, drive: 50, fold: 10, attack: 0.1, decay: 1.5, filter: { type: 'lowpass', cutoff: 500, resonance: 12 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('ruin', 'DHT - Short Zap', { pitch: 72, algorithm: 'distort_fold', timbre: 70, drive: 80, fold: 95, attack: 0.001, decay: 0.05, filter: { type: 'highpass', cutoff: 1000, resonance: 4 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('ruin', 'DHT - Gritty Tom', { pitch: 40, algorithm: 'distort_fold', timbre: 20, drive: 70, fold: 40, attack: 0.001, decay: 0.12, filter: { type: 'lowpass', cutoff: 1200, resonance: 8 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
+    createPreset('ruin', 'MC - Grinder Bass', { pitch: 48, algorithm: 'overload', timbre: 80, drive: 100, fold: 75, attack: 0.002, decay: 0.1, filter: { type: 'lowpass', cutoff: 1500, resonance: 8 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
 ];
 
 const ARCANE_PRESETS: InstrumentPreset[] = [
@@ -63,6 +66,7 @@ const ARCANE_PRESETS: InstrumentPreset[] = [
     createPreset('arcane', 'DHT - Riser FX', { osc1_shape: 50, osc2_shape: 50, osc2_pitch: 0, osc2_fine: 0, mode: 'pm', mod_amount: 80, fold: 70, spread: 100, ampEnv: { attack: 2.0, decay: 1.0, sustain: 1.0, release: 0.5 }, filter: { type: 'highpass', cutoff: 200, resonance: 5 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('arcane', 'DHT - Digital Tom', { osc1_shape: 0, osc2_shape: 10, osc2_pitch: -12, osc2_fine: 0, mode: 'pm', mod_amount: 30, fold: 0, spread: 0, ampEnv: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.1 }, filter: { type: 'lowpass', cutoff: 1500, resonance: 7 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('arcane', 'DHT - Hollow Drone', { osc1_shape: 15, osc2_shape: 85, osc2_pitch: 0, osc2_fine: 2, mode: 'pm', mod_amount: 10, fold: 0, spread: 50, ampEnv: { attack: 0.5, decay: 1.5, sustain: 0.8, release: 2.0 }, filter: { type: 'lowpass', cutoff: 800, resonance: 8 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
+    createPreset('arcane', 'MC - Acidic Stab', { osc1_shape: 85, osc2_shape: 15, osc2_pitch: 12, osc2_fine: 5, mode: 'hard_sync', mod_amount: 55, fold: 0, spread: 10, ampEnv: { attack: 0.001, decay: 0.22, sustain: 0, release: 0.1 }, filter: { type: 'lowpass', cutoff: 1800, resonance: 14 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
 ];
 
 const ARTIFICE_PRESETS: InstrumentPreset[] = [
@@ -76,6 +80,7 @@ const ARTIFICE_PRESETS: InstrumentPreset[] = [
     createPreset('artifice', 'DHT - Detuned Pad', { osc1_shape: 20, osc2_shape: 25, osc2_pitch: 0, osc2_fine: 8, fm_amount: 5, osc_mix: -15, noise_level: 15, ampEnv: { attack: 0.3, decay: 1.2, sustain: 0.6, release: 0.8 }, filterEnv: { attack: 0.5, decay: 1.0, sustain: 0, release: 0.5 }, filterEnvAmount: 1500, filter_mode: 'lp_hp_p', filter_cutoff: 1200, filter_res: 8, filter_spread: 24, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('artifice', 'DHT - Acid Squelch', { osc1_shape: 90, osc2_shape: 0, osc2_pitch: -12, osc2_fine: 0, fm_amount: 0, osc_mix: -100, noise_level: 0, ampEnv: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.1 }, filterEnv: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.1 }, filterEnvAmount: 8000, filter_mode: 'lp_hp_s', filter_cutoff: 400, filter_res: 18, filter_spread: 0, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('artifice', 'DHT - Space Junk', { osc1_shape: 50, osc2_shape: 50, osc2_pitch: 19, osc2_fine: 50, fm_amount: 80, osc_mix: 0, noise_level: 40, ampEnv: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.1 }, filterEnv: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.1 }, filterEnvAmount: 10000, filter_mode: 'bp_bp_p', filter_cutoff: 8000, filter_res: 20, filter_spread: 48, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
+    createPreset('artifice', 'MC - Noise Sweep', { osc1_shape: 50, osc2_shape: 25, osc2_pitch: 0, osc2_fine: -3, fm_amount: 0, osc_mix: 0, noise_level: 100, ampEnv: { attack: 0.001, decay: 0.5, sustain: 0, release: 0.3 }, filterEnv: { attack: 0.01, decay: 0.2, sustain: 0, release: 0.2 }, filterEnvAmount: 0, filter_mode: 'bp_bp_p', filter_cutoff: 1000, filter_res: 20, filter_spread: -12, lfo1: { waveform: 'sawtooth', rate: 0.1, rateSync: false, rateDivision: 1, depth: 1000, destination: 'artifice.filter_cutoff', retrigger: false }, lfo2: NEUTRAL_LFO }),
 ];
 
 const SHIFT_PRESETS: InstrumentPreset[] = [
@@ -102,6 +107,7 @@ const RESON_PRESETS: InstrumentPreset[] = [
     createPreset('reson', 'DHT - Long Gong', { pitch: 36, structure: 40, brightness: 9000, decay: 0.995, material: 20, exciter_type: 'impulse', ampEnv: { attack: 0.001, decay: 2.0, sustain: 0, release: 1.5 }, filter: { type: 'lowpass', cutoff: 20000, resonance: 1 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('reson', 'DHT - Noise Burst', { pitch: 80, structure: 100, brightness: 18000, decay: 0.8, material: 0, exciter_type: 'noise', ampEnv: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.05 }, filter: { type: 'highpass', cutoff: 5000, resonance: 2 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('reson', 'DHT - Dub Marimba', { pitch: 60, structure: 70, brightness: 7000, decay: 0.92, material: 85, exciter_type: 'impulse', ampEnv: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.1 }, filter: { type: 'lowpass', cutoff: 12000, resonance: 1 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
+    createPreset('reson', 'MC - Metal Hit', { pitch: 69, structure: 15, brightness: 14000, decay: 0.985, material: 5, exciter_type: 'impulse', ampEnv: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.15 }, filter: { type: 'lowpass', cutoff: 18000, resonance: 1 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
 ];
 
 const ALLOY_PRESETS: InstrumentPreset[] = [
@@ -115,6 +121,7 @@ const ALLOY_PRESETS: InstrumentPreset[] = [
     createPreset('alloy', 'DHT - Soft Mallet', { pitch: 60, ratio: 2.0, feedback: 0, mod_level: 30, mod_attack: 0.001, mod_decay: 0.1, ampEnv: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.15 }, filter: { type: 'lowpass', cutoff: 8000, resonance: 1 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('alloy', 'DHT - High Bell', { pitch: 96, ratio: 3.0, feedback: 15, mod_level: 25, mod_attack: 0.001, mod_decay: 0.08, ampEnv: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 }, filter: { type: 'highpass', cutoff: 1500, resonance: 1 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
     createPreset('alloy', 'DHT - Angry FM Bass', { pitch: 36, ratio: 0.5, feedback: 90, mod_level: 90, mod_attack: 0.001, mod_decay: 0.12, ampEnv: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.15 }, filter: { type: 'lowpass', cutoff: 600, resonance: 6 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
+    createPreset('alloy', 'MC - FM Clang', { pitch: 62, ratio: 2.8, feedback: 80, mod_level: 80, mod_attack: 0.001, mod_decay: 0.07, ampEnv: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.08 }, filter: { type: 'bandpass', cutoff: 2000, resonance: 6 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO }),
 ];
 
 

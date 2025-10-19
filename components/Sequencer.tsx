@@ -194,22 +194,14 @@ const TrackRow = React.memo(({ track, currentPage, isSelected, isAudible, isDisa
 
 
 const SequencerComponent: React.FC = () => {
-  const { 
-    tracks, selectedTrackId, mutedTracks, soloedTrackId, 
-    isPLockModeActive, selectedPLockStep, centerView, euclideanMode, copiedPattern, isViewerMode, isSpectator,
-    sequencerPage,
-    // Actions
-    handleStepClick, togglePLockMode, selectPattern, setPatternLength,
-    setStepProperty, randomizeTrackPattern, startEuclideanMode,
-    clearTrackPattern,
-    clearAutomation, toggleCenterView, updateEuclidean, applyEuclidean, cancelEuclidean,
-    setParam, setTrackPan, setFxSend, copyPattern, pastePattern, triggerViewerModeInteraction,
-    setSequencerPage,
-  } = useStore(state => ({
-    tracks: state.preset?.tracks || [],
+  // Performance: Split state selection into smaller, more focused hooks.
+  const tracks = useStore(state => state.preset?.tracks || []);
+  const { selectedTrackId, mutedTracks, soloedTrackId } = useStore(state => ({
     selectedTrackId: state.selectedTrackId,
     mutedTracks: state.mutedTracks,
     soloedTrackId: state.soloedTrackId,
+  }), shallow);
+  const { isPLockModeActive, selectedPLockStep, centerView, euclideanMode, copiedPattern, isViewerMode, isSpectator, sequencerPage } = useStore(state => ({
     isPLockModeActive: state.isPLockModeActive,
     selectedPLockStep: state.selectedPLockStep,
     centerView: state.centerView,
@@ -218,9 +210,15 @@ const SequencerComponent: React.FC = () => {
     isViewerMode: state.isViewerMode,
     isSpectator: state.isSpectator,
     sequencerPage: state.sequencerPage,
-    handleStepClick: state.handleStepClick,
+  }), shallow);
+  const { 
+    togglePLockMode, selectPattern, setPatternLength, setStepProperty, 
+    randomizeTrackPattern, startEuclideanMode, clearTrackPattern, clearAutomation, 
+    toggleCenterView, updateEuclidean, applyEuclidean, cancelEuclidean, setParam, 
+    setTrackPan, setFxSend, copyPattern, pastePattern, triggerViewerModeInteraction, 
+    setSequencerPage 
+  } = useStore(state => ({
     togglePLockMode: state.togglePLockMode,
-    selectTrack: state.selectTrack,
     selectPattern: state.selectPattern,
     setPatternLength: state.setPatternLength,
     setStepProperty: state.setStepProperty,
@@ -240,6 +238,7 @@ const SequencerComponent: React.FC = () => {
     triggerViewerModeInteraction: state.triggerViewerModeInteraction,
     setSequencerPage: state.setSequencerPage,
   }), shallow);
+
 
   const currentStep = usePlaybackStore(state => state.currentStep);
   

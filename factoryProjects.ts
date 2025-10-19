@@ -11,6 +11,7 @@ import {
     INITIAL_ARTIFICE_PARAMS,
     INITIAL_RESON_PARAMS,
     createEmptyPatterns,
+    NEUTRAL_LFO,
 } from './constants';
 
 const createEmptySteps = (length = 64): StepState[] => Array(length).fill(null).map(() => ({ 
@@ -111,7 +112,7 @@ export const systemCollapse: Preset = {
     masterVolume: 0.9,
   },
   tracks: [
-    { ...deepClone(INITIAL_TRACKS[0]), name: 'Hard Kick', params: { ...INITIAL_KICK_PARAMS, decay: 0.35, impact: 100, character: 85 }, patterns: [createPatternFromSequence([1,null,null,null,1,null,0.8,null,1,null,null,null,1,null,0.8,null], 'C2')], volume: 0.4, fxSends: { drive: 0.3, reverb: 0, delay: 0, sidechain: 0 } },
+    { ...deepClone(INITIAL_TRACKS[0]), name: 'Hard Kick', params: { ...INITIAL_KICK_PARAMS, decay: 0.35, impact: 100, character: 85 }, patterns: [createPatternFromSequence([1,null,0.8,null,1,null,0.8,null,1,null,0.8,null,1,null,0.8,null], 'C2')], volume: 0.4, fxSends: { drive: 0.3, reverb: 0, delay: 0, sidechain: 0 } },
     { ...deepClone(INITIAL_TRACKS[1]), name: 'Noise Clap', params: { ...INITIAL_ARTIFICE_PARAMS, noise_level: 100, filter_mode: 'bp_bp_p', filter_cutoff: 2200, filter_res: 15, filter_spread: 24, ampEnv: { attack: 0.002, decay: 0.12, sustain: 0, release: 0.1 }, filterEnvAmount: 6000 }, type: 'artifice', patterns: [createPatternFromSequence([null,null,null,null,1,null,null,null,null,null,null,null,1,null,null,null], 'C4')], fxSends: { reverb: 0.4, delay: 0.2, drive: 0.1, sidechain: 0 } },
     { ...deepClone(INITIAL_TRACKS[2]), name: 'Screech', params: { ...INITIAL_RUIN_PARAMS, pitch: 48, algorithm: 'distort_fold', timbre: 95, drive: 90, fold: 80, decay: 0.15, filter: { type: 'bandpass', cutoff: 1800, resonance: 9 } }, patterns: [createPatternFromSequence(Array(16).fill(null).map((_, i) => i % 4 === 3 ? 0.8 : null), 'F#3')], fxSends: { drive: 0.2, reverb: 0.3, delay: 0.5, sidechain: 0.5 } },
     { ...deepClone(INITIAL_TRACKS[3]), name: 'Scrap Metal', params: { ...INITIAL_HAT_PARAMS, tone: 6500, decay: 0.15, character: 100, spread: 3.5, filter: { type: 'bandpass', cutoff: 7000, resonance: 12 } }, type: 'hat', patterns: [createPatternFromSequence(Array(16).fill(null).map((_, i) => i % 2 !== 0 ? 0.7 : null), 'C5')], fxSends: { reverb: 0.2, delay: 0.4, drive: 0.1, sidechain: 0 } },
@@ -180,23 +181,72 @@ export const machineCult: Preset = {
     bpm: 138,
     globalFxParams: {
         reverb: { decay: 2.5, mix: 0.25, preDelay: 0.01, preDelaySync: false, preDelayDivision: 1, damping: 2500 },
-        delay: { time: 0.5, feedback: 0.65, mix: 0.3, timeSync: true, timeDivision: 0.375, tone: 4000 },
+        delay: { time: 0.5, feedback: 0.68, mix: 0.35, timeSync: true, timeDivision: 0.375, tone: 4000 },
         drive: { amount: 65, tone: 3500, mix: 0.3 },
         character: { mode: 'overdrive', amount: 60, mix: 0.5 },
         masterFilter: { type: 'lowpass', cutoff: 20000, resonance: 1 },
         compressor: { enabled: true, threshold: -18, ratio: 12, knee: 10, attack: 0.001, release: 0.08, makeup: 8, sidechainSource: 0 },
         masterVolume: 0.9,
     },
-    tracks: [
-        { ...deepClone(INITIAL_TRACKS[0]), name: 'Slam Kick', params: { ...INITIAL_KICK_PARAMS, decay: 0.25, impact: 100, character: 90, tone: 60 }, patterns: [createPatternFromSequence([1,null,0.7,null,1,null,1,null,1,null,0.7,null,1,null,1,null], 'C2')], volume: 0.42, fxSends: { drive: 0.4, reverb: 0.1, delay: 0, sidechain: 0 } },
-        { ...deepClone(INITIAL_TRACKS[1]), name: '909 Ride', params: { ...INITIAL_HAT_PARAMS, tone: 6000, decay: 0.8, character: 100, spread: 1.2, filter: { type: 'bandpass', cutoff: 7500, resonance: 15 } }, type: 'hat', patterns: [createPatternFromSequence([null,null,0.8,null,null,null,0.8,null,null,null,0.8,null,null,null,0.8,null], 'C5')], fxSends: { reverb: 0.3, delay: 0.5, drive: 0.1, sidechain: 0 } },
-        { ...deepClone(INITIAL_TRACKS[2]), name: 'Grinder', params: { ...INITIAL_RUIN_PARAMS, pitch: 48, algorithm: 'overload', timbre: 80, drive: 95, fold: 75, decay: 0.1, filter: { type: 'lowpass', cutoff: 1500, resonance: 8 } }, patterns: [createPatternFromSequence(Array(16).fill(null).map((_, i) => i % 2 !== 0 ? 0.7 : null), 'G#2')], fxSends: { drive: 0.2, reverb: 0.2, delay: 0.3, sidechain: 0.8 } },
-        { ...deepClone(INITIAL_TRACKS[3]), name: 'FM Clang', params: { ...INITIAL_ALLOY_PARAMS, pitch: 62, ratio: 2.8, feedback: 70, mod_level: 80, mod_decay: 0.07 }, type: 'alloy', patternLength: 13, patterns: [createPatternFromSequence(Array(13).fill(null).map((_, i) => i % 4 === 2 ? 0.9 : null), 'D#5')], fxSends: { delay: 0.7, reverb: 0.5, drive: 0.1, sidechain: 0.1 } },
-        { ...deepClone(INITIAL_TRACKS[4]), name: 'Noise Sweep', params: { ...INITIAL_ARTIFICE_PARAMS, noise_level: 100, filter_mode: 'bp_bp_p', filter_cutoff: 1000, filter_res: 20, ampEnv: { attack: 0.001, decay: 0.5, sustain: 0, release: 0.3 }, lfo1: { waveform: 'sawtooth', rate: 0.1, rateSync: false, rateDivision: 1, depth: 1000, destination: 'artifice.filter_cutoff', retrigger: false } }, type: 'artifice', patterns: [createPatternFromSequence([0.8], 'C4', 0.8, 16)], fxSends: { reverb: 0.4, delay: 0.5, drive: 0, sidechain: 0.5 }, volume: 0.18 },
-        { ...deepClone(INITIAL_TRACKS[5]), volume: 0 },
-        { ...deepClone(INITIAL_TRACKS[6]), volume: 0 },
-        { ...deepClone(INITIAL_TRACKS[7]), volume: 0 },
-    ]
+    tracks: (() => {
+        const tracks = deepClone(INITIAL_TRACKS);
+
+        const kickPattern = createPatternFromSequence([1,null,null,0.7,0.95,null,1,null,1,null,null,0.6,0.9,null,1,0.5], 'C2');
+        const ridePattern = createPatternFromSequence([null,null,0.8,0.5,null,null,0.8,0.6,null,null,0.8,0.5,null,null,0.8,0.7], 'C5');
+        const grinderPattern = createPatternFromSequence([0.9,0.7,null,0.8,0.9,0.7,null,0.8,0.9,0.7,null,0.8,0.9,0.7,null,1.0], 'G#2');
+        // FIX: Completed FilterParams object in pLocks to satisfy TypeScript
+        grinderPattern[15].pLocks = { ruinParams: { filter: { type: 'lowpass', cutoff: 3500, resonance: 8 } } };
+        const clangPattern = createPatternFromSequence(Array(13).fill(null).map((_, i) => { if (i === 2) return 0.9; if (i === 6) return 0.7; if (i === 10) return 1.0; return null; }), 'D#5');
+        const stabPattern = createPatternFromSequence(Array(16).fill(null), 'C4');
+        stabPattern[3].active = true; stabPattern[3].notes = ['A#3']; stabPattern[3].velocity = 0.8;
+        stabPattern[7].active = true; stabPattern[7].notes = ['C4']; stabPattern[7].velocity = 1.0;
+        stabPattern[13].active = true; stabPattern[13].notes = ['G3']; stabPattern[13].velocity = 0.9;
+        const metalPattern = createPatternFromSequence(Array(16).fill(null).map((_,i) => i === 9 ? 0.8 : null), 'C6');
+
+        tracks[0] = {
+            ...tracks[0], name: 'MC - Slam Kick', loadedInstrumentPresetName: 'MC - Slam Kick',
+            params: { tune: 44, decay: 0.25, impact: 100, character: 95, tone: 60, ampEnv: { attack: 0.001, decay: 0.25, sustain: 0, release: 0.1 }, filter: { type: 'lowpass', cutoff: 16000, resonance: 2 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO },
+            patterns: [kickPattern, ...createEmptyPatterns().slice(1)], volume: 0.45,
+            fxSends: { drive: 0.4, reverb: 0.1, delay: 0, sidechain: 0 }
+        };
+        tracks[1] = {
+            ...tracks[1], name: 'MC - 909 Ride', loadedInstrumentPresetName: 'MC - 909 Ride', type: 'hat',
+            params: { tone: 6000, decay: 0.7, character: 100, spread: 1.2, ampEnv: { attack: 0.001, decay: 0.7, sustain: 0, release: 0.4 }, filter: { type: 'bandpass', cutoff: 7500, resonance: 15 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO },
+            patterns: [ridePattern, ...createEmptyPatterns().slice(1)], fxSends: { reverb: 0.3, delay: 0.5, drive: 0.1, sidechain: 0 }
+        };
+        tracks[2] = {
+            ...tracks[2], name: 'MC - Grinder Bass', loadedInstrumentPresetName: 'MC - Grinder Bass', type: 'ruin',
+            params: { pitch: 48, algorithm: 'overload', timbre: 80, drive: 100, fold: 75, attack: 0.002, decay: 0.1, filter: { type: 'lowpass', cutoff: 1500, resonance: 8 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO },
+            patterns: [grinderPattern, ...createEmptyPatterns().slice(1)], fxSends: { drive: 0.2, reverb: 0.2, delay: 0.3, sidechain: 0.8 }
+        };
+        tracks[3] = {
+            ...tracks[3], name: 'MC - FM Clang', loadedInstrumentPresetName: 'MC - FM Clang', type: 'alloy',
+            params: { pitch: 62, ratio: 2.8, feedback: 80, mod_level: 80, mod_attack: 0.001, mod_decay: 0.07, ampEnv: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.08 }, filter: { type: 'bandpass', cutoff: 2000, resonance: 6 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO },
+            patternLength: 13, patterns: [clangPattern, ...createEmptyPatterns().slice(1)],
+            fxSends: { delay: 0.7, reverb: 0.5, drive: 0.1, sidechain: 0.1 }
+        };
+        tracks[4] = {
+            ...tracks[4], name: 'MC - Noise Sweep', loadedInstrumentPresetName: 'MC - Noise Sweep', type: 'artifice',
+            params: { ...INITIAL_ARTIFICE_PARAMS, noise_level: 100, filter_mode: 'bp_bp_p', filter_cutoff: 1000, filter_res: 20, ampEnv: { attack: 0.001, decay: 0.5, sustain: 0, release: 0.3 }, filterEnvAmount: 0, lfo1: { waveform: 'sawtooth', rate: 0.1, rateSync: false, rateDivision: 1, depth: 1000, destination: 'artifice.filter_cutoff', retrigger: false } },
+            patterns: [createPatternFromSequence([0.8], 'C4', 0.8, 16), ...createEmptyPatterns().slice(1)],
+            fxSends: { reverb: 0.4, delay: 0.5, drive: 0, sidechain: 0.5 }, volume: 0.22
+        };
+        tracks[5] = {
+            ...tracks[5], name: 'MC - Acidic Stab', loadedInstrumentPresetName: 'MC - Acidic Stab', type: 'arcane',
+            params: { osc1_shape: 85, osc2_shape: 15, osc2_pitch: 12, osc2_fine: 5, mode: 'hard_sync', mod_amount: 55, fold: 0, spread: 10, ampEnv: { attack: 0.001, decay: 0.22, sustain: 0, release: 0.1 }, filter: { type: 'lowpass', cutoff: 1800, resonance: 14 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO },
+            patterns: [stabPattern, ...createEmptyPatterns().slice(1)],
+            fxSends: { reverb: 0.3, delay: 0.6, drive: 0, sidechain: 0.3 }, volume: 0.35
+        };
+        tracks[6] = {
+            ...tracks[6], name: 'MC - Metal Hit', loadedInstrumentPresetName: 'MC - Metal Hit', type: 'reson',
+            params: { pitch: 69, structure: 15, brightness: 14000, decay: 0.985, material: 5, exciter_type: 'impulse', ampEnv: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.15 }, filter: { type: 'lowpass', cutoff: 18000, resonance: 1 }, lfo1: NEUTRAL_LFO, lfo2: NEUTRAL_LFO },
+            patterns: [metalPattern, ...createEmptyPatterns().slice(1)],
+            fxSends: { reverb: 0.5, delay: 0.4, drive: 0.1, sidechain: 0.1 }, volume: 0.3
+        };
+        tracks[7].volume = 0;
+
+        return tracks;
+    })(),
 };
 
 export const fractalGateway: Preset = {

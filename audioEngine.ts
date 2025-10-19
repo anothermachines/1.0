@@ -471,7 +471,30 @@ export class AudioEngine {
         }
         return key === 'channel' ? 1 : null;
     }
-    private createParameterResolver(track: Track, pLocks: PLocks | null, loopTime: number) { const getDeepValue = (obj: any, path: string) => path.split('.').reduce((acc, part) => acc && acc[part], obj); return (path: string) => { let val; const automationPath = `params.${path}`; if (track.automation[automationPath]) val = getAutomationValue(track.automation, automationPath, loopTime); if(val !== undefined) return val; if (pLocks) { const pLockRoot = pLocks[`${track.type}Params` as keyof PLocks]; if (pLockRoot) { val = getDeepValue(pLockRoot, path); if (val !== undefined) return val; } } return getDeepValue(track.params, path); }; }
+    private createParameterResolver(track: Track, pLocks: PLocks | null, loopTime: number) {
+        const getDeepValue = (obj: any, path: string): any => {
+            return path.split('.').reduce((acc, part) => {
+                if (acc === null || acc === undefined) {
+                    return undefined;
+                }
+                return acc[part];
+            }, obj);
+        };
+        return (path: string) => {
+            let val;
+            const automationPath = `params.${path}`;
+            if (track.automation[automationPath]) val = getAutomationValue(track.automation, automationPath, loopTime);
+            if (val !== undefined) return val;
+            if (pLocks) {
+                const pLockRoot = pLocks[`${track.type}Params` as keyof PLocks];
+                if (pLockRoot) {
+                    val = getDeepValue(pLockRoot, path);
+                    if (val !== undefined) return val;
+                }
+            }
+            return getDeepValue(track.params, path);
+        };
+    }
     private triggerSidechain(time: number, velocity: number) { if (!this.sidechainParams) return; const { attack, release, threshold, ratio } = this.sidechainParams; const duckAmount = (1 - (finite(threshold, -12) / -100)) * (finite(ratio, 4) / 20); const finalDuckAmount = Math.max(0, Math.min(1, duckAmount * finite(velocity, 1))); const duckedGain = 1 - finalDuckAmount; const gain = this.sidechainDucker.gain; gain.cancelScheduledValues(time); gain.setTargetAtTime(duckedGain, time, finite(attack, 0.003)); gain.setTargetAtTime(1.0, time + finite(attack, 0.003), finite(release, 0.25) / 2); }
     
     private shouldTrigger(trackId: number, step: StepState, loopCount: number) {

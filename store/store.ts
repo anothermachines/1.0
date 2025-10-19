@@ -1335,6 +1335,19 @@ export const useStore = create<AppState & AppActions>()(
                     }
 
                     const newPreset = deepClone(preset);
+                    
+                    // --- BACKWARD COMPATIBILITY MIGRATION ---
+                    const defaultFxParams = deepClone(LICENSED_DEFAULT_PROJECT.globalFxParams);
+                    newPreset.globalFxParams = deepMerge(defaultFxParams, newPreset.globalFxParams || {});
+                    
+                    // Migrate track params to ensure all properties exist
+                    newPreset.tracks.forEach(track => {
+                        if (track.type !== 'midi') {
+                            const defaultParams = getInitialParamsForType(track.type);
+                            track.params = deepMerge(defaultParams, track.params || {});
+                        }
+                    });
+
                     set({ preset: newPreset, selectedTrackId: 0, sequencerPage: 0, mutedTracks: [], soloedTrackId: null, selectedPLockStep: null, isPLockModeActive: false });
                     
                     if (audioEngine) {
@@ -1373,18 +1386,43 @@ export const useStore = create<AppState & AppActions>()(
                     });
                      get().addNotification({ type: 'success', message: `Project "${name}" updated.` });
                 },
-                 saveCurrentProjectAndExtractPresets: () => {
+                saveCurrentProjectAndExtractPresets: () => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const { preset, overwritePreset, saveInstrumentPreset } = get();
-                    overwritePreset(preset.name);
-
-                    preset.tracks.forEach(track => {
-                        if (track.type !== 'midi') {
-                            const presetName = `${preset.name} - ${track.name}`;
-                            saveInstrumentPreset(track.type, presetName);
+                    // First, save the current project state to the library.
+                    get().overwritePreset(get().preset.name);
+                
+                    // Now, extract instrument presets from the current project in a single, safe state update.
+                    set(state => {
+                        let extractedCount = 0;
+                        const project = state.preset; // Use the current state's preset
+                
+                        project.tracks.forEach(track => {
+                            // Ensure track is not MIDI and has params to save.
+                            if (track.type !== 'midi' && track.params && Object.keys(track.params).length > 0) {
+                                const presetName = `${project.name} - ${track.name}`;
+                                const trackType = track.type;
+                                
+                                // Check if a preset with the same name and type already exists.
+                                const existing = state.instrumentPresets.find(p => p.type === trackType && p.name.toLowerCase() === presetName.toLowerCase());
+                                
+                                if (!existing) {
+                                    const newPreset: InstrumentPreset = {
+                                        name: presetName,
+                                        type: trackType,
+                                        params: deepClone(track.params),
+                                    };
+                                    state.instrumentPresets.push(newPreset);
+                                    extractedCount++;
+                                }
+                            }
+                        });
+                
+                        if (extractedCount > 0) {
+                            state.addNotification({ type: 'success', message: `Project saved and ${extractedCount} new instrument presets extracted.` });
+                        } else {
+                            state.addNotification({ type: 'success', message: `Project saved. No new presets were extracted (they may already exist).` });
                         }
                     });
-                     get().addNotification({ type: 'success', message: `Project saved and ${preset.tracks.length} instrument presets extracted.` });
                 },
                 deletePreset: (name) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
@@ -1427,68 +1465,99 @@ export const useStore = create<AppState & AppActions>()(
                     const blob = new Blob([JSON.stringify(presetToExport, null, 2)], { type: 'application/json' });
                     downloadBlob(blob, `${presetToExport.name}.fm8r-project`);
                 },
-                importProject: async (file) => {
+                importProject: (file) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const text = await file.text();
-                    try {
-                        const newPreset = JSON.parse(text) as Preset;
-                        if (typeof newPreset.name !== 'string' || !Array.isArray(newPreset.tracks)) {
-                            throw new Error('Invalid project file format.');
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const result = e.target?.result as string;
+                            const newPreset = JSON.parse(result);
+                            if (newPreset.name && newPreset.tracks) {
+                                if (get().presets.some(p => p.name === newPreset.name)) {
+                                    get().addNotification({ type: 'error', message: `A project named "${newPreset.name}" already exists. Please rename it before importing.` });
+                                } else {
+                                    set(state => { state.presets.push(newPreset); });
+                                    get().addNotification({ type: 'success', message: `Project "${newPreset.name}" imported.` });
+                                }
+                            } else {
+                                throw new Error("Invalid project file format.");
+                            }
+                        } catch (error) {
+                            console.error("Failed to import project:", error);
+                             get().addNotification({ type: 'error', message: 'Failed to import project. Invalid file format.' });
                         }
-                        const existing = get().presets.find(p => p.name === newPreset.name);
-                        if (existing) {
-                            set({ importConflict: { newPreset } });
-                            get().addNotification({ type: 'info', message: `Project "${newPreset.name}" already exists. Overwrite?` });
-                        } else {
-                            set(state => ({ presets: [...state.presets, newPreset] }));
-                            get().addNotification({ type: 'success', message: `Project "${newPreset.name}" imported.` });
-                        }
-                    } catch (e) {
-                        console.error("Import failed:", e);
-                        get().addNotification({ type: 'error', message: 'Failed to import project file.' });
-                    }
+                    };
+                    reader.readAsText(file);
                 },
-                saveAllProjects: () => {
+                saveAllProjects: async () => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const projects = get().presets;
-                    const blob = new Blob([JSON.stringify(projects, null, 2)], { type: 'application/json' });
-                    downloadBlob(blob, 'fm8r_all_projects_backup.json');
+                    await loadJSZip();
+                    const zip = new JSZip();
+                    get().presets.forEach(preset => {
+                        zip.file(`${preset.name}.fm8r-project`, JSON.stringify(preset, null, 2));
+                    });
+                    const content = await zip.generateAsync({ type: "blob" });
+                    downloadBlob(content, "FM8R_Projects_Backup.zip");
                 },
                 exportAudio: async (options) => {
-                    if (get().isViewerMode) { 
-                        get().triggerViewerModeInteraction(); 
-                        return Promise.reject("Export is disabled in viewer mode.");
+                    if (get().isSpectator) {
+                        get().triggerViewerModeInteraction();
+                        get().addNotification({ type: 'info', message: "Export is disabled in Spectator mode." });
+                        return Promise.reject("Export disabled");
                     }
-                    set({ isExporting: true });
+                    if (get().isViewerMode) {
+                        get().triggerViewerModeInteraction();
+                        get().addNotification({ type: 'info', message: "Please unlock the full version to export audio." });
+                        return Promise.reject("Export disabled");
+                    }
+                    
+                    const { preset, mutedTracks, soloedTrackId, mainView, arrangementLoop } = get();
+                    const sampleRate = 44100;
+                    const { type, source = mainView === 'pattern' ? 'pattern' : 'song-loop' } = options;
+                    const includeMasterFx = options.includeMasterFx ?? true;
+                    
+                    const onProgress = (message: string) => set({ exportProgress: message });
+
+                    set({ isExporting: true, exportProgress: 'Starting export...' });
                     try {
-                        const { preset, mutedTracks, soloedTrackId, arrangementLoop } = get();
-                        const sampleRate = 44100;
-                
-                        let result: { blob: Blob, name: string };
-                        const finalOptions = { ...options, includeMasterFx: options.type !== 'stems-dry' };
-                
-                        if (options.source === 'pattern') {
-                            result = await renderPatternAudio(preset, sampleRate, mutedTracks, soloedTrackId, finalOptions, (msg) => set({ exportProgress: msg }));
-                        } else { // song modes
-                            const secondsPerBeat = 60 / preset.bpm;
+                        let result;
+                        if (source === 'pattern') {
+                            result = await renderPatternAudio(preset, sampleRate, mutedTracks, soloedTrackId, { type, includeMasterFx }, onProgress);
+                        } else if (source === 'song-loop' || source === 'song-full') {
                             let startTime = 0;
-                            let endTime = Math.max(...(preset.arrangementClips || []).map(c => c.startTime + c.duration)) * secondsPerBeat;
-                            
-                            if (options.source === 'song-loop' && arrangementLoop) {
+                            let endTime = 0;
+                            const secondsPerBeat = 60 / preset.bpm;
+
+                            if (source === 'song-loop' && arrangementLoop) {
                                 startTime = arrangementLoop.start * secondsPerBeat;
                                 endTime = arrangementLoop.end * secondsPerBeat;
+                            } else { // full song
+                                const clips = preset.arrangementClips || [];
+                                if (clips.length > 0) {
+                                    endTime = Math.max(...clips.map(c => c.startTime + c.duration)) * secondsPerBeat;
+                                }
                             }
-                
-                            result = await renderSongAudio(preset, sampleRate, mutedTracks, soloedTrackId, { ...finalOptions, startTime, endTime }, (msg) => set({ exportProgress: msg }));
+                            
+                            if (endTime <= startTime) {
+                                throw new Error("Invalid export range. End time must be after start time.");
+                            }
+                            
+                            result = await renderSongAudio(
+                                preset, sampleRate, mutedTracks, soloedTrackId, 
+                                { type, includeMasterFx, startTime, endTime }, 
+                                onProgress
+                            );
+                        } else {
+                            throw new Error("Invalid export source");
                         }
-                
+                        
                         downloadBlob(result.blob, result.name);
-                        get().addNotification({ type: 'success', message: 'Audio export finished!' });
+                        get().addNotification({ type: 'success', message: `Successfully exported ${result.name}` });
                         return result;
-                    } catch (e) {
-                        console.error("Export failed", e);
-                        get().addNotification({ type: 'error', message: `Audio export failed: ${(e as Error).message}` });
-                        throw e;
+                    } catch (error: any) {
+                        console.error("Export failed:", error);
+                        get().addNotification({ type: 'error', message: `Export failed: ${error.message}` });
+                        return Promise.reject(error.message);
                     } finally {
                         set({ isExporting: false, exportProgress: '' });
                     }
@@ -1496,63 +1565,50 @@ export const useStore = create<AppState & AppActions>()(
                 installPack: (pack) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
                     set(state => {
-                        if (state.installedPacks.includes(pack.id)) return;
-
-                        // Add pack projects, avoiding duplicates
-                        const existingProjectNames = new Set(state.presets.map(p => p.name));
-                        const newProjects = pack.projects.filter(p => !existingProjectNames.has(p.name));
+                        const projectNames = new Set(state.presets.map(p => p.name));
+                        const newProjects = pack.projects.filter(p => !projectNames.has(p.name));
                         state.presets.push(...deepClone(newProjects));
-
-                        // Add pack instruments, avoiding duplicates
-                        const existingInstrumentKeys = new Set(state.instrumentPresets.map(p => `${p.type}::${p.name}`));
-                        const newInstruments = pack.instruments.filter(p => !existingInstrumentKeys.has(`${p.type}::${p.name}`));
+                        
+                        const instrumentKeys = new Set(state.instrumentPresets.map(p => `${p.type}::${p.name}`));
+                        const newInstruments = pack.instruments.filter(p => !instrumentKeys.has(`${p.type}::${p.name}`));
                         state.instrumentPresets.push(...deepClone(newInstruments));
 
                         state.installedPacks.push(pack.id);
+                        state.addNotification({ type: 'success', message: `Expansion Pack "${pack.name}" installed.` });
                     });
-                    get().addNotification({ type: 'success', message: `Expansion Pack "${pack.name}" installed.` });
                 },
-                 fetchCustomPacks: async (url) => {
-                    if (!url) {
-                        set({ customPacks: [] });
-                        return;
-                    }
+                fetchCustomPacks: async (url) => {
+                    if (!url) return;
                     try {
                         const response = await fetch(url);
                         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                        const manifest = await response.json();
-                        if (Array.isArray(manifest.packs)) {
-                            // Basic validation
-                            const validPacks = manifest.packs.filter((p: any) => p.id && p.name && p.artist && Array.isArray(p.projects) && Array.isArray(p.instruments));
-                            set({ customPacks: validPacks });
-                            get().addNotification({ type: 'success', message: `Loaded ${validPacks.length} custom pack(s).` });
-                        } else {
-                            throw new Error("Invalid manifest format");
-                        }
+                        const customPacks: ExpansionPack[] = await response.json();
+                        set({ customPacks });
+                        get().addNotification({ type: 'info', message: `Loaded ${customPacks.length} custom packs.` });
                     } catch (e) {
                         console.error("Failed to fetch custom packs:", e);
-                        set({ customPacks: [] });
-                        get().addNotification({ type: 'error', message: 'Could not load custom content from URL.' });
+                        get().addNotification({ type: 'error', message: "Failed to load custom packs from URL." });
                     }
                 },
-                setCustomStoreUrl: (url) => {
-                    set({ customStoreUrl: url });
-                },
+                setCustomStoreUrl: (url) => set({ customStoreUrl: url }),
 
                 // --- ARRANGEMENT ---
                 moveClip: (clipId, newStartTime) => {
+                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
                     set(state => {
                         const clip = state.preset.arrangementClips?.find(c => c.id === clipId);
                         if (clip) clip.startTime = newStartTime;
                     });
                 },
                 resizeClip: (clipId, newDuration) => {
+                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
                     set(state => {
                         const clip = state.preset.arrangementClips?.find(c => c.id === clipId);
                         if (clip) clip.duration = newDuration;
                     });
                 },
                 deleteClip: (clipId) => {
+                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
                     set(state => {
                         if (state.preset.arrangementClips) {
                             state.preset.arrangementClips = state.preset.arrangementClips.filter(c => c.id !== clipId);
@@ -1560,58 +1616,67 @@ export const useStore = create<AppState & AppActions>()(
                     });
                 },
                 duplicateClip: (clip, newStartTime) => {
-                     set(state => {
+                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    set(state => {
+                        if (!state.preset.arrangementClips) state.preset.arrangementClips = [];
                         const newClip = {
                             ...deepClone(clip),
-                            id: `clip-${Date.now()}`,
-                            startTime: newStartTime
+                            id: `clip-${Date.now()}-${Math.random()}`,
+                            startTime: newStartTime,
                         };
-                        if (!state.preset.arrangementClips) state.preset.arrangementClips = [];
                         state.preset.arrangementClips.push(newClip);
                     });
                 },
                 addPatternClip: (trackId, startTime, patternIndex) => {
-                     if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                     set(state => {
+                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    set(state => {
                         const track = state.preset.tracks.find(t => t.id === trackId);
                         if (!track) return;
-                        const duration = track.patternLength / 4; // length in beats
+                        if (!state.preset.arrangementClips) state.preset.arrangementClips = [];
                         const newClip: ArrangementClip = {
-                            id: `clip-${Date.now()}`,
+                            id: `clip-${Date.now()}-${Math.random()}`,
                             trackId,
                             startTime,
-                            duration,
+                            duration: track.patternLength / 4, // duration in beats
                             type: 'pattern',
-                            patternIndex,
+                            patternIndex: patternIndex,
                         };
-                         if (!state.preset.arrangementClips) state.preset.arrangementClips = [];
                         state.preset.arrangementClips.push(newClip);
                     });
                 },
                 toggleArrangementRecording: (currentPlayheadTime) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const isRec = get().isArrangementRecording;
-                    if (isRec) {
+                    if (get().isArrangementRecording) {
                         get().finalizeRecording(currentPlayheadTime);
+                    } else {
+                        set({ isArrangementRecording: true, recordingClips: [] });
+                        get().addNotification({ type: 'info', message: 'Arrangement recording started. Change patterns to record.' });
                     }
-                    set({ isArrangementRecording: !isRec });
                 },
                 finalizeRecording: (currentPlayheadTime) => {
+                    if (!get().isArrangementRecording) return;
+                    
                     const secondsPerBeat = 60 / get().preset.bpm;
                     const timeInBeats = currentPlayheadTime / secondsPerBeat;
+                
                     set(state => {
+                        // Finalize any clips that are still "recording"
                         state.recordingClips.forEach(clip => {
                             clip.duration = timeInBeats - clip.startTime;
                             if (!state.preset.arrangementClips) state.preset.arrangementClips = [];
                             if (clip.duration > 0) state.preset.arrangementClips.push(clip);
                         });
+                
+                        state.isArrangementRecording = false;
                         state.recordingClips = [];
                     });
+                    get().addNotification({ type: 'success', message: 'Arrangement recording finished.' });
                 },
                 initializeArrangementLoop: (defaultDurationInBeats) => {
-                    const clips = get().preset.arrangementClips || [];
-                    if (get().arrangementLoop) return; // Don't overwrite if it's already set
-
+                    if (get().arrangementLoop) return; // Don't overwrite if it already exists
+                    
+                    const { preset } = get();
+                    const clips = preset.arrangementClips || [];
                     if (clips.length > 0) {
                         const minStart = Math.min(...clips.map(c => c.startTime));
                         const maxEnd = Math.max(...clips.map(c => c.startTime + c.duration));
@@ -1620,187 +1685,164 @@ export const useStore = create<AppState & AppActions>()(
                         set({ arrangementLoop: { start: 0, end: defaultDurationInBeats } });
                     }
                 },
-                setArrangementLoop: (start, end) => set({ arrangementLoop: { start, end } }),
+                setArrangementLoop: (start, end) => {
+                    if (start < end) {
+                        set({ arrangementLoop: { start, end } });
+                    }
+                },
                 
-                // --- NOTIFICATIONS ---
-                removeNotification: (id) => {
-                    set(state => ({
-                        notifications: state.notifications.filter(n => n.id !== id)
-                    }));
-                },
-                addNotification: (notification) => {
-                    const id = Date.now() + Math.random();
-                    set(state => ({
-                        notifications: [...state.notifications, { id, ...notification }]
-                    }));
-                },
-
+                 // --- NOTIFICATIONS ---
+                removeNotification: (id) => set(state => ({ notifications: state.notifications.filter(n => n.id !== id) })),
+                addNotification: (notification) => set(state => ({ notifications: [...state.notifications, { ...notification, id: Date.now() + Math.random() }]})),
+                
                 // --- INSTRUMENT PRESETS ---
                 saveInstrumentPreset: (trackType, name) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const { preset, selectedTrackId } = get();
-                    const track = preset.tracks.find(t => t.id === selectedTrackId);
-                    if (!track || track.type !== trackType) return;
-
-                    const newPreset: InstrumentPreset = {
-                        name,
-                        type: trackType,
-                        params: deepClone(track.params),
-                    };
                     set(state => {
-                        const existingIndex = state.instrumentPresets.findIndex(p => p.type === trackType && p.name === name);
-                        if (existingIndex !== -1) {
-                            state.instrumentPresets[existingIndex] = newPreset;
-                        } else {
-                            state.instrumentPresets.push(newPreset);
+                        const existing = state.instrumentPresets.find(p => p.type === trackType && p.name.toLowerCase() === name.toLowerCase());
+                        if (existing) {
+                            state.addNotification({ type: 'error', message: `An instrument preset named "${name}" already exists for this type.` });
+                            return;
                         }
-                        const currentTrack = state.preset.tracks.find(t => t.id === selectedTrackId);
-                        if(currentTrack) currentTrack.loadedInstrumentPresetName = name;
+
+                        const track = state.preset.tracks.find(t => t.id === state.selectedTrackId);
+                        if (track && track.type === trackType) {
+                            const newPreset: InstrumentPreset = {
+                                name,
+                                type: trackType,
+                                params: deepClone(track.params),
+                            };
+                            state.instrumentPresets.push(newPreset);
+                            state.addNotification({ type: 'success', message: `Instrument preset "${name}" saved.` });
+                        }
                     });
-                    get().addNotification({ type: 'success', message: `Instrument preset "${name}" saved.` });
                 },
                 loadInstrumentPreset: (preset) => {
-                    const { selectedTrackId, isViewerMode } = get();
-                    if (isViewerMode && selectedTrackId >= 3) { get().triggerViewerModeInteraction(); return; }
-
+                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
                     set(state => {
-                        const track = state.preset.tracks.find(t => t.id === selectedTrackId);
+                        const track = state.preset.tracks.find(t => t.id === state.selectedTrackId);
                         if (track && track.type === preset.type) {
-                            track.params = deepClone(preset.params);
+                            // Ensure compatibility by merging with default params
+                            const defaultParams = getInitialParamsForType(track.type);
+                            track.params = deepMerge(defaultParams, preset.params);
                             track.loadedInstrumentPresetName = preset.name;
                         }
                     });
                 },
                 deleteInstrumentPreset: (trackType, name) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => ({
-                        instrumentPresets: state.instrumentPresets.filter(p => !(p.type === trackType && p.name === name))
-                    }));
+                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    set(state => {
+                        state.instrumentPresets = state.instrumentPresets.filter(p => !(p.type === trackType && p.name === name));
+                    });
+                    get().addNotification({ type: 'info', message: `Instrument preset "${name}" deleted.` });
                 },
-                 importInstrumentPresets: async (file) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    try {
-                        const text = await file.text();
-                        const data = JSON.parse(text);
-                        let presetsToImport: InstrumentPreset[];
+                 importInstrumentPresets: (file) => {
+                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const result = e.target?.result as string;
+                            const imported = JSON.parse(result) as InstrumentPreset[] | { name: string, type: TrackType, presets: InstrumentPreset[] };
+                            
+                            let presetsToImport: InstrumentPreset[];
+                            if (Array.isArray(imported)) {
+                                presetsToImport = imported;
+                            } else if (imported.presets && Array.isArray(imported.presets)) {
+                                presetsToImport = imported.presets;
+                            } else {
+                                throw new Error("Invalid format");
+                            }
 
-                        if (Array.isArray(data)) {
-                            // It's an array of presets
-                            presetsToImport = data;
-                        } else if (typeof data === 'object' && data.type && data.name && data.params) {
-                            // It's a single preset object
-                            presetsToImport = [data];
-                        } else {
-                            throw new Error('Invalid instrument preset file format.');
+                            set(state => {
+                                let added = 0;
+                                const existingKeys = new Set(state.instrumentPresets.map(p => `${p.type}::${p.name.toLowerCase()}`));
+                                presetsToImport.forEach(p => {
+                                    if (p.type && p.name && p.params && !existingKeys.has(`${p.type}::${p.name.toLowerCase()}`)) {
+                                        state.instrumentPresets.push(p);
+                                        added++;
+                                    }
+                                });
+                                get().addNotification({ type: 'success', message: `Imported ${added} new instrument presets.` });
+                            });
+
+                        } catch (error) {
+                            get().addNotification({ type: 'error', message: 'Failed to import instrument presets. Invalid file.' });
                         }
-
-                        // Validate presets
-                        presetsToImport = presetsToImport.filter(p => p.type && p.name && p.params);
-
-                        if (presetsToImport.length === 0) {
-                            throw new Error('No valid instrument presets found in file.');
-                        }
-
-                        set(state => {
-                            const existingKeys = new Set(state.instrumentPresets.map(p => `${p.type}::${p.name}`));
-                            const newPresets = presetsToImport.filter(p => !existingKeys.has(`${p.type}::${p.name}`));
-                            state.instrumentPresets.push(...newPresets);
-                        });
-                        get().addNotification({ type: 'success', message: `Imported ${presetsToImport.length} instrument preset(s).` });
-                    } catch (e) {
-                        console.error("Instrument preset import failed:", e);
-                        get().addNotification({ type: 'error', message: 'Failed to import instrument presets.' });
-                    }
+                    };
+                    reader.readAsText(file);
                 },
                 exportInstrumentPresets: (trackType) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
                     const presetsToExport = get().instrumentPresets.filter(p => p.type === trackType);
-                    if (presetsToExport.length === 0) {
-                        get().addNotification({ type: 'info', message: `No presets to export for type "${trackType}".` });
-                        return;
-                    }
-                    const blob = new Blob([JSON.stringify(presetsToExport, null, 2)], { type: 'application/json' });
-                    downloadBlob(blob, `fm8r_instrument_presets_${trackType}.json`);
+                    const exportObj = {
+                        name: `${trackType.toUpperCase()} Presets`,
+                        type: trackType,
+                        presets: presetsToExport,
+                    };
+                    const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
+                    downloadBlob(blob, `FM8R_${trackType}_presets.json`);
                 },
-                
-                // --- COPY / PASTE ---
                 copyStep: (trackId, stepIndex) => {
-                    const track = get().preset.tracks.find(t => t.id === trackId);
-                    if (track) {
-                        const step = track.patterns[track.activePatternIndex][stepIndex];
-                        set({ copiedStep: { trackId, stepIndex, step: deepClone(step) } });
-                        get().addNotification({ type: 'info', message: `Copied step ${stepIndex + 1} from ${track.name}.` });
-                    }
+                     if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
+                    set(state => {
+                        const track = state.preset.tracks.find(t => t.id === trackId);
+                        if (track) {
+                            const step = track.patterns[track.activePatternIndex][stepIndex];
+                            state.copiedStep = { trackId, stepIndex, step: deepClone(step) };
+                            get().addNotification({ type: 'info', message: `Copied step ${stepIndex + 1} from ${track.name}` });
+                        }
+                    });
                 },
                 pasteStep: (trackId, stepIndex) => {
-                    const { copiedStep } = get();
-                    if (copiedStep) {
-                        set(state => {
+                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
+                    set(state => {
+                        if (state.copiedStep) {
                             const track = state.preset.tracks.find(t => t.id === trackId);
                             if (track) {
-                                track.patterns[track.activePatternIndex][stepIndex] = deepClone(copiedStep.step);
+                                track.patterns[track.activePatternIndex][stepIndex] = deepClone(state.copiedStep.step);
                             }
-                        });
-                    }
+                        }
+                    });
                 },
                 copyPattern: () => {
-                    const { preset, selectedTrackId } = get();
-                    const track = preset.tracks.find(t => t.id === selectedTrackId);
-                    if (track) {
-                        const pattern = track.patterns[track.activePatternIndex];
-                        set({ copiedPattern: { trackId: selectedTrackId, pattern: deepClone(pattern) } });
-                        get().addNotification({ type: 'info', message: `Copied pattern from ${track.name}.` });
-                    }
+                    const { selectedTrackId } = get();
+                    if (get().isViewerMode && selectedTrackId >= 3) { get().triggerViewerModeInteraction(); return; }
+                    set(state => {
+                        const track = state.preset.tracks.find(t => t.id === selectedTrackId);
+                        if (track) {
+                            const pattern = track.patterns[track.activePatternIndex];
+                            state.copiedPattern = { trackId: selectedTrackId, pattern: deepClone(pattern) };
+                            get().addNotification({ type: 'info', message: `Copied pattern from ${track.name}` });
+                        }
+                    });
                 },
                 pastePattern: () => {
-                    const { copiedPattern, preset, selectedTrackId } = get();
-                    if (copiedPattern) {
-                        set(state => {
+                     const { selectedTrackId } = get();
+                    if (get().isViewerMode && selectedTrackId >= 3) { get().triggerViewerModeInteraction(); return; }
+                    set(state => {
+                        if (state.copiedPattern) {
                             const track = state.preset.tracks.find(t => t.id === selectedTrackId);
                             if (track) {
-                                track.patterns[track.activePatternIndex] = deepClone(copiedPattern.pattern);
+                                track.patterns[track.activePatternIndex] = deepClone(state.copiedPattern.pattern);
                             }
-                        });
-                    }
+                        }
+                    });
                 },
-
-                // --- MISC ---
-                toggleCenterView: () => {
-                    const track = get().preset.tracks.find(t => t.id === get().selectedTrackId);
-                    if (track && !['kick', 'hat', 'midi'].includes(track.type)) {
-                        set(state => ({ centerView: state.centerView === 'mixer' ? 'pianoRoll' : 'mixer' }))
-                    } else {
-                        set({ centerView: 'mixer' });
-                    }
-                },
-                setMainView: (view) => {
-                    if (get().isViewerMode && view === 'song') { get().triggerViewerModeInteraction(); return; }
-                    set({ mainView: view })
-                },
+                toggleCenterView: () => set(state => ({ centerView: state.centerView === 'mixer' ? 'pianoRoll' : 'mixer' })),
+                setMainView: (view) => set({ mainView: view }),
                 setSequencerPage: (page) => set({ sequencerPage: page }),
                 setAudioOutputDevices: (devices) => set({ audioOutputDevices: devices }),
                 selectAudioOutput: (deviceId) => {
-                    if (get().selectedAudioOutputId !== deviceId) {
-                        set({ selectedAudioOutputId: deviceId });
-                        get().reinitializeAudio();
-                    }
+                    set({ selectedAudioOutputId: deviceId });
+                    get().reinitializeAudio();
                 },
                 setLatency: (latency) => {
-                    if (get().latencySetting !== latency) {
-                        set({ latencySetting: latency });
-                        get().reinitializeAudio();
-                    }
+                    set({ latencySetting: latency });
+                    get().reinitializeAudio();
                 },
-                setMidiSyncSource: (source) => {
-                    set({ midiSyncSource: source });
-                },
-                setMidiSyncOutput: (output) => {
-                    set({ midiSyncOutput: output });
-                },
-                exportFullBackup: (midiMappings) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const backup: FullBackup = {
-                        version: '1.2',
+                 exportFullBackup: (midiMappings) => {
+                    const stateToSave = {
+                        version: '1.2.0',
                         presets: get().presets,
                         instrumentPresets: get().instrumentPresets,
                         installedPacks: get().installedPacks,
@@ -1810,142 +1852,161 @@ export const useStore = create<AppState & AppActions>()(
                         midiSyncSource: get().midiSyncSource,
                         midiSyncOutput: get().midiSyncOutput,
                     };
-                    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-                    downloadBlob(blob, `fm8r_full_backup_${new Date().toISOString().split('T')[0]}.json`);
+                    const blob = new Blob([JSON.stringify(stateToSave, null, 2)], { type: 'application/json' });
+                    downloadBlob(blob, `FM8R_Full_Backup.fm8r-backup`);
                 },
-                importFullBackup: async (file) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    try {
-                        const text = await file.text();
-                        const backup = JSON.parse(text) as FullBackup;
-                        if (backup.version !== '1.2' && backup.version !== '1.1') {
-                            throw new Error('Incompatible backup version.');
-                        }
-                        set({
-                            presets: backup.presets,
-                            instrumentPresets: backup.instrumentPresets,
-                            installedPacks: backup.installedPacks || [],
-                            appearanceTheme: backup.appearanceTheme as AppearanceThemeKey,
-                            accentTheme: backup.accentTheme as AccentThemeKey,
-                            midiSyncSource: backup.midiSyncSource || 'internal',
-                            midiSyncOutput: backup.midiSyncOutput || 'none',
-                        });
-                        get().loadPreset(backup.presets[0] || deepClone(LICENSED_DEFAULT_PROJECT));
-                        get().addNotification({ type: 'success', message: 'Full backup restored successfully.' });
-                        return backup.midiMappings;
-
-                    } catch(e) {
-                         console.error("Backup import failed:", e);
-                        get().addNotification({ type: 'error', message: 'Failed to import backup file.' });
+                importFullBackup: (file) => {
+                    return new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            try {
+                                const result = e.target?.result as string;
+                                const backup = JSON.parse(result) as FullBackup;
+                                
+                                set(state => {
+                                    state.presets = backup.presets || state.presets;
+                                    state.instrumentPresets = backup.instrumentPresets || state.instrumentPresets;
+                                    state.installedPacks = backup.installedPacks || state.installedPacks;
+                                    state.appearanceTheme = (backup.appearanceTheme as AppearanceThemeKey) || state.appearanceTheme;
+                                    state.accentTheme = (backup.accentTheme as AccentThemeKey) || state.accentTheme;
+                                    state.midiSyncSource = backup.midiSyncSource || state.midiSyncSource;
+                                    state.midiSyncOutput = backup.midiSyncOutput || state.midiSyncOutput;
+                                });
+                                
+                                get().addNotification({ type: 'success', message: 'Full backup restored successfully.' });
+                                resolve(backup.midiMappings || []);
+                            } catch (err) {
+                                get().addNotification({ type: 'error', message: 'Failed to import backup. Invalid file format.' });
+                                reject(err);
+                            }
+                        };
+                        reader.readAsText(file);
+                    });
+                },
+                 setMidiSyncSource: (source) => {
+                    set({ midiSyncSource: source });
+                    // If switching to internal, stop playback to regain control.
+                    if (source === 'internal') {
+                        usePlaybackStore.getState().stop();
                     }
                 },
-                 setLicenseKey: (key, isSilent = false) => {
-                    const isValid = key.startsWith('FM8R-') && key.length > 10;
+                setMidiSyncOutput: (output) => set({ midiSyncOutput: output }),
+                setLicenseKey: (key, isSilent = false) => {
+                    const isOwnerKey = key === "FM8R-OWNER-PRO-UNLIMITED-ACCESS";
+                    
+                    // Definitive regex for generated keys: FM8R-GEN- followed by 3 blocks of 4 alphanumeric chars.
+                    const isGeneratedKey = (k: string): boolean => {
+                        const regex = /^FM8R-GEN-([A-Z0-9]{4}-){2}[A-Z0-9]{4}$/i;
+                        return regex.test(k);
+                    };
+
+                    const isValid = isOwnerKey || isGeneratedKey(key);
                 
                     if (isValid) {
-                        localStorage.setItem('fm8r_license_key', key);
+                        const wasOnBlankProject = get().preset.name === "Blank Project";
+                
                         set(state => {
-                            if (state.isViewerMode) {
-                                state.isViewerMode = false;
-                                // If the user was on the demo project, switch them to the licensed default project.
-                                // The main preset list is not modified, so both "Blank Project" and "New Project" remain available.
-                                if (state.preset.name === DEMO_DEFAULT_PROJECT.name) {
-                                    state.preset = deepClone(LICENSED_DEFAULT_PROJECT);
-                                }
-                                
-                                if (!isSilent) state.addNotification({type: 'success', message: 'Full version unlocked!', duration: 5000});
-                                setTimeout(() => get().reinitializeAudio(), 100);
-                            }
                             state.licenseKey = key;
+                            state.isViewerMode = false;
                             state.isLicenseModalOpen = false;
                         });
+                
+                        if (wasOnBlankProject) {
+                            const newProject = get().presets.find(p => p.name === "New Project") || deepClone(LICENSED_DEFAULT_PROJECT);
+                            get().loadPreset(newProject);
+                        }
+                
+                        if (!isSilent) {
+                            get().addNotification({ type: 'success', message: 'Full version unlocked! Thank you for your support.' });
+                        }
+                        localStorage.setItem('fm8r_license_key', key);
                     } else {
-                        localStorage.removeItem('fm8r_license_key');
-                        set({ licenseKey: null });
-                        if (!isSilent) get().addNotification({type: 'error', message: 'Invalid license key.'});
+                        if (!isSilent) {
+                            get().addNotification({ type: 'error', message: 'Invalid license key.' });
+                        }
                     }
                 },
                 clearLicenseKey: () => {
-                     localStorage.removeItem('fm8r_license_key');
-                     set({
-                         isViewerMode: true,
-                         licenseKey: null,
-                         preset: deepClone(DEMO_DEFAULT_PROJECT),
-                     });
-                     get().addNotification({type: 'info', message: 'License cleared. Restarting in trial mode.'});
-                     setTimeout(() => window.location.reload(), 1000);
+                    set({ licenseKey: null, isViewerMode: true });
+                    localStorage.removeItem('fm8r_license_key');
+                    get().addNotification({type: 'info', message: 'License removed.'});
                 },
                 toggleLicenseModal: (open) => set({ isLicenseModalOpen: open === undefined ? !get().isLicenseModalOpen : open }),
                 triggerViewerModeInteraction: () => {
-                    const { lastNotificationTime, addNotification, toggleLicenseModal } = get();
+                    const { isLicenseModalOpen, toggleLicenseModal, lastNotificationTime } = get();
                     const now = Date.now();
-                    if (now - lastNotificationTime > 3000) { // Throttle notifications
-                        addNotification({ type: 'info', message: 'This feature requires the full version.', duration: 3000 });
-                        set({ lastNotificationTime: now });
-                        setTimeout(() => toggleLicenseModal(true), 300);
+                    if (!isLicenseModalOpen) {
+                        toggleLicenseModal(true);
+                        // Prevent notification spam
+                        if (now - lastNotificationTime > 5000) {
+                            set({lastNotificationTime: now});
+                            get().addNotification({
+                                type: 'info',
+                                message: 'This feature is available in the full version.',
+                                duration: 5000,
+                            });
+                        }
                     }
                 },
-                 toggleShareJamModal: (open) => set({ isShareJamOpen: open === undefined ? !get().isShareJamOpen : open }),
-                 generateShareableLink: async () => {
+                toggleShareJamModal: (open) => set({ isShareJamOpen: open === undefined ? !get().isShareJamOpen : open }),
+                generateShareableLink: async () => {
                     await loadJSZip();
                     const zip = new JSZip();
-                    // Store a minimal version of the preset
+                    // Strip down preset for sharing
                     const presetToShare = deepClone(get().preset);
-                    presetToShare.tracks.forEach(t => {
-                        // Clear patterns except the active one to save space
-                        const activePattern = t.patterns[t.activePatternIndex];
-                        t.patterns = [activePattern];
-                        t.activePatternIndex = 0;
+                    presetToShare.tracks.forEach(track => {
+                        // Keep only active pattern
+                        const activePattern = track.patterns[track.activePatternIndex];
+                        track.patterns = [activePattern];
+                        track.activePatternIndex = 0;
+                        track.patternLength = activePattern.length > 16 ? Math.min(64, Math.ceil(activePattern.length / 16) * 16) : 16;
                     });
-
+                    
                     zip.file("p.json", JSON.stringify(presetToShare));
                     const content = await zip.generateAsync({type:"base64"});
                     const toUrlSafeBase64 = (s: string) => s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-                    const urlSafeContent = toUrlSafeBase64(content);
                     
-                    const url = new URL(window.location.href);
-                    url.search = ''; // Clear existing search params
-                    url.hash = `jam=${urlSafeContent}`;
-                    return url.toString();
-                 },
+                    const baseUrl = window.location.origin + window.location.pathname;
+                    return `${baseUrl}#jam=${toUrlSafeBase64(content)}`;
+                },
                 toggleFullscreenPrompt: (show) => set({ showFullscreenPrompt: show === undefined ? !get().showFullscreenPrompt : show }),
-                addMidiCcLock: (cc = 0, value = 127) => {
+                addMidiCcLock: (cc = 74, value = 64) => {
                     set(state => {
-                        if (state.selectedPLockStep) {
-                            const track = state.preset.tracks.find(t => t.id === state.selectedPLockStep!.trackId);
-                            if (track && track.type === 'midi') {
-                                const step = track.patterns[track.activePatternIndex][state.selectedPLockStep.stepIndex];
-                                if (!step.pLocks) step.pLocks = {};
-                                if (!step.pLocks.ccLocks) step.pLocks.ccLocks = [];
-                                step.pLocks.ccLocks.push({ id: `cc-${Date.now()}-${Math.random()}`, cc, value });
-                            }
+                        const { selectedPLockStep } = state;
+                        if (!selectedPLockStep) return;
+                        const track = state.preset.tracks.find(t => t.id === selectedPLockStep.trackId);
+                        if (track && track.type === 'midi') {
+                            const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                            if (!step.pLocks) step.pLocks = {};
+                            if (!step.pLocks.ccLocks) step.pLocks.ccLocks = [];
+                            step.pLocks.ccLocks.push({ id: `cc-${Date.now()}`, cc, value });
                         }
                     });
                 },
                 updateMidiCcLock: (id, cc, value) => {
                     set(state => {
-                        if (state.selectedPLockStep) {
-                            const track = state.preset.tracks.find(t => t.id === state.selectedPLockStep!.trackId);
-                            if (track) {
-                                const step = track.patterns[track.activePatternIndex][state.selectedPLockStep.stepIndex];
-                                const lock = step.pLocks?.ccLocks?.find(l => l.id === id);
-                                if (lock) {
-                                    if (cc !== undefined) lock.cc = cc;
-                                    if (value !== undefined) lock.value = value;
-                                }
+                        const { selectedPLockStep } = state;
+                        if (!selectedPLockStep) return;
+                        const track = state.preset.tracks.find(t => t.id === selectedPLockStep.trackId);
+                        if (track && track.type === 'midi') {
+                            const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                            const lock = step.pLocks?.ccLocks?.find(l => l.id === id);
+                            if (lock) {
+                                if (cc !== undefined) lock.cc = Math.max(0, Math.min(127, cc));
+                                if (value !== undefined) lock.value = Math.max(0, Math.min(127, value));
                             }
                         }
                     });
                 },
                 removeMidiCcLock: (id) => {
                     set(state => {
-                        if (state.selectedPLockStep) {
-                            const track = state.preset.tracks.find(t => t.id === state.selectedPLockStep!.trackId);
-                            if (track) {
-                                const step = track.patterns[track.activePatternIndex][state.selectedPLockStep!.stepIndex];
-                                if (step.pLocks?.ccLocks) {
-                                    step.pLocks.ccLocks = step.pLocks.ccLocks.filter(lock => lock.id !== id);
-                                }
+                        const { selectedPLockStep } = state;
+                        if (!selectedPLockStep) return;
+                        const track = state.preset.tracks.find(t => t.id === selectedPLockStep.trackId);
+                        if (track && track.type === 'midi') {
+                            const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                            if (step.pLocks?.ccLocks) {
+                                step.pLocks.ccLocks = step.pLocks.ccLocks.filter(l => l.id !== id);
                             }
                         }
                     });
@@ -1953,3 +2014,46 @@ export const useStore = create<AppState & AppActions>()(
         }))
     )
 );
+
+useStore.subscribe(
+    state => state.preset,
+    (preset) => {
+        // FIX: Replaced `get()` with `useStore.getState()` as `get()` is not in scope here.
+        const stateToSave = {
+            presets: useStore.getState().presets,
+            instrumentPresets: useStore.getState().instrumentPresets,
+            appearanceTheme: useStore.getState().appearanceTheme,
+            accentTheme: useStore.getState().accentTheme,
+            customStoreUrl: useStore.getState().customStoreUrl,
+        };
+        try {
+            localStorage.setItem('fm8r-state', JSON.stringify(stateToSave));
+        } catch (e) {
+            console.warn("Could not save state to localStorage:", e);
+        }
+    },
+    { equalityFn: (a, b) => JSON.stringify(a) === JSON.stringify(b), fireImmediately: false }
+);
+
+useStore.subscribe(state => state.appearanceTheme, (theme) => {
+    try {
+        const state = JSON.parse(localStorage.getItem('fm8r-state') || '{}');
+        state.appearanceTheme = theme;
+        localStorage.setItem('fm8r-state', JSON.stringify(state));
+    } catch (e) {}
+});
+
+useStore.subscribe(state => state.accentTheme, (theme) => {
+     try {
+        const state = JSON.parse(localStorage.getItem('fm8r-state') || '{}');
+        state.accentTheme = theme;
+        localStorage.setItem('fm8r-state', JSON.stringify(state));
+    } catch (e) {}
+});
+useStore.subscribe(state => state.customStoreUrl, (url) => {
+    try {
+        const state = JSON.parse(localStorage.getItem('fm8r-state') || '{}');
+        state.customStoreUrl = url;
+        localStorage.setItem('fm8r-state', JSON.stringify(state));
+    } catch (e) {}
+});

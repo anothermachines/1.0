@@ -4,7 +4,8 @@ import { Track, PLocks, LFODestination, LFOParams, FilterParams, Envelope, FXSen
 import Knob from './Knob';
 import InstrumentPresetManager from './InstrumentPresetManager';
 import { TIME_DIVISIONS } from '../constants';
-import { getParamValue, isParamLocked, getTrackValue, getSendValue, isTrackValueLocked, isSendLocked, getMidiOutParamValue, isMidiOutParamLocked, getInitialParamsForType } from '../utils';
+// FIX: Import 'midiToNoteName' to resolve 'Cannot find name' errors.
+import { getParamValue, isParamLocked, getTrackValue, getSendValue, isTrackValueLocked, isSendLocked, getMidiOutParamValue, isMidiOutParamLocked, getInitialParamsForType, midiToNoteName } from '../utils';
 import Selector from './Selector';
 import TrackSelector from './TrackSelector';
 import { shallow } from 'zustand/shallow';
@@ -391,11 +392,11 @@ const ArcaneEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks
             <Knob label="PITCH 2" value={getParamValue(track, pLocks, 'osc2_pitch')} min={-36} max={36} step={1} onChange={createHandler('osc2_pitch')} unit="st" isPLocked={isParamLocked(track, pLocks, 'osc2_pitch')} mapInfo={{ path: `tracks.${track.id}.params.osc2_pitch`, label: `${track.name} Osc2 Pitch` }} />
             <Knob label="FINE 2" value={getParamValue(track, pLocks, 'osc2_fine')} min={-100} max={100} step={1} onChange={createHandler('osc2_fine')} unit="c" isPLocked={isParamLocked(track, pLocks, 'osc2_fine')} mapInfo={{ path: `tracks.${track.id}.params.osc2_fine`, label: `${track.name} Osc2 Fine` }} />
         </Section>
-        <Section title="MODULATION" className="grid-cols-2 md:grid-cols-4">
-            <Selector label="MODE" value={getParamValue(track, pLocks, 'mode')} options={[{value: 'pm', label: 'PM'}, {value: 'add', label: 'ADD'}, {value: 'ring', label: 'RING'}, {value: 'hard_sync', label: 'SYNC'}]} onChange={createHandler('mode')} isPLocked={isParamLocked(track, pLocks, 'mode')} />
-            <Knob label="MOD AMT" value={getParamValue(track, pLocks, 'mod_amount')} min={0} max={100} onChange={createHandler('mod_amount')} isPLocked={isParamLocked(track, pLocks, 'mod_amount')} mapInfo={{ path: `tracks.${track.id}.params.mod_amount`, label: `${track.name} Mod Amount` }}/>
-            <Knob label="FOLD" value={getParamValue(track, pLocks, 'fold')} min={0} max={100} onChange={createHandler('fold')} isPLocked={isParamLocked(track, pLocks, 'fold')} mapInfo={{ path: `tracks.${track.id}.params.fold`, label: `${track.name} Fold` }}/>
-            <Knob label="SPREAD" value={getParamValue(track, pLocks, 'spread')} min={0} max={100} onChange={createHandler('spread')} isPLocked={isParamLocked(track, pLocks, 'spread')} mapInfo={{ path: `tracks.${track.id}.params.spread`, label: `${track.name} Spread` }}/>
+        <Section title="MODULATION & FOLDING" className="grid-cols-2 md:grid-cols-4">
+             <Selector label="MODE" value={params.mode} options={[{value: 'pm', label: 'PHASE MOD'}, {value: 'add', label: 'ADDITIVE'}, {value: 'ring', label: 'RING MOD'}, {value: 'hard_sync', label: 'HARD SYNC'}]} onChange={createHandler('mode')} isPLocked={isParamLocked(track, pLocks, 'mode')} />
+            <Knob label="MOD AMT" value={getParamValue(track, pLocks, 'mod_amount')} min={0} max={100} onChange={createHandler('mod_amount')} isPLocked={isParamLocked(track, pLocks, 'mod_amount')} mapInfo={{ path: `tracks.${track.id}.params.mod_amount`, label: `${track.name} Mod Amount` }} />
+            <Knob label="FOLD" value={getParamValue(track, pLocks, 'fold')} min={0} max={100} onChange={createHandler('fold')} isPLocked={isParamLocked(track, pLocks, 'fold')} mapInfo={{ path: `tracks.${track.id}.params.fold`, label: `${track.name} Fold` }} />
+            <Knob label="SPREAD" value={getParamValue(track, pLocks, 'spread')} min={0} max={100} onChange={createHandler('spread')} unit="c" isPLocked={isParamLocked(track, pLocks, 'spread')} mapInfo={{ path: `tracks.${track.id}.params.spread`, label: `${track.name} Spread` }} />
         </Section>
         <EnvelopeSection basePath="ampEnv" track={track} pLocks={pLocks} onParamChange={onParamChange} title="AMP ENVELOPE" />
         <FilterSection basePath="filter" track={track} pLocks={pLocks} onParamChange={onParamChange} />
@@ -405,22 +406,25 @@ const ArcaneEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks
 };
 
 const RuinEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, onParamChange }) => {
+    const params = track.params as RuinParams;
     const DESTINATIONS: {value: LFODestination, label: string}[] = [ ...COMMON_DESTINATIONS,
         {value: 'ruin.pitch', label: 'PITCH'}, {value: 'ruin.timbre', label: 'TIMBRE'},
-        {value: 'ruin.drive', label: 'DRIVE'}, {value: 'ruin.fold', label: 'FOLD'}, {value: 'ruin.decay', label: 'DECAY'},
+        {value: 'ruin.drive', label: 'DRIVE'}, {value: 'ruin.fold', label: 'FOLD'},
+        {value: 'ruin.decay', label: 'DECAY'},
     ];
     const createHandler = (path: string) => useCallback((v: any) => onParamChange(path, v), [path, onParamChange]);
+    
     return <>
-        <Section title="ENGINE" className="grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
-            <Knob label="PITCH" value={getParamValue(track, pLocks, 'pitch')} min={12} max={72} step={1} onChange={createHandler('pitch')} isPLocked={isParamLocked(track, pLocks, 'pitch')} mapInfo={{ path: `tracks.${track.id}.params.pitch`, label: `${track.name} Pitch` }}/>
-            <Selector label="ALGORITHM" value={getParamValue(track, pLocks, 'algorithm')} options={[{value: 'feedback_pm', label: 'FB PM'}, {value: 'distort_fold', label: 'DIST'}, {value: 'overload', label: 'OVER'}]} onChange={createHandler('algorithm')} isPLocked={isParamLocked(track, pLocks, 'algorithm')} />
-            <Knob label="TIMBRE" value={getParamValue(track, pLocks, 'timbre')} min={0} max={100} onChange={createHandler('timbre')} isPLocked={isParamLocked(track, pLocks, 'timbre')} mapInfo={{ path: `tracks.${track.id}.params.timbre`, label: `${track.name} Timbre` }}/>
-            <Knob label="DRIVE" value={getParamValue(track, pLocks, 'drive')} min={0} max={100} onChange={createHandler('drive')} isPLocked={isParamLocked(track, pLocks, 'drive')} mapInfo={{ path: `tracks.${track.id}.params.drive`, label: `${track.name} Drive` }}/>
-            <Knob label="FOLD" value={getParamValue(track, pLocks, 'fold')} min={0} max={100} onChange={createHandler('fold')} isPLocked={isParamLocked(track, pLocks, 'fold')} mapInfo={{ path: `tracks.${track.id}.params.fold`, label: `${track.name} Fold` }}/>
+        <Section title="CORE" className="grid-cols-2 md:grid-cols-3">
+            <Knob label="PITCH" value={getParamValue(track, pLocks, 'pitch')} min={12} max={72} step={1} onChange={createHandler('pitch')} displayTransform={v => midiToNoteName(v)} isPLocked={isParamLocked(track, pLocks, 'pitch')} mapInfo={{ path: `tracks.${track.id}.params.pitch`, label: `${track.name} Pitch` }} />
+            <Knob label="ATK" value={getParamValue(track, pLocks, 'attack')} min={0.001} max={1} step={0.001} onChange={createHandler('attack')} isPLocked={isParamLocked(track, pLocks, 'attack')} mapInfo={{ path: `tracks.${track.id}.params.attack`, label: `${track.name} Attack` }} />
+            <Knob label="DECAY" value={getParamValue(track, pLocks, 'decay')} min={0.01} max={4} step={0.01} onChange={createHandler('decay')} isPLocked={isParamLocked(track, pLocks, 'decay')} mapInfo={{ path: `tracks.${track.id}.params.decay`, label: `${track.name} Decay` }} />
         </Section>
-        <Section title="ENVELOPE" className="grid-cols-2">
-             <Knob label="ATK" value={getParamValue(track, pLocks, 'attack')} min={0.001} max={2} step={0.001} onChange={createHandler('attack')} isPLocked={isParamLocked(track, pLocks, 'attack')} mapInfo={{ path: `tracks.${track.id}.params.attack`, label: `${track.name} Attack` }}/>
-             <Knob label="DEC" value={getParamValue(track, pLocks, 'decay')} min={0.01} max={4} step={0.01} onChange={createHandler('decay')} isPLocked={isParamLocked(track, pLocks, 'decay')} mapInfo={{ path: `tracks.${track.id}.params.decay`, label: `${track.name} Decay` }}/>
+        <Section title="DESTRUCTION" className="grid-cols-2 md:grid-cols-4">
+             <Selector label="ALGORITHM" value={params.algorithm} options={[{value: 'feedback_pm', label: 'FEEDBACK PM'}, {value: 'distort_fold', label: 'DISTORT>FOLD'}, {value: 'overload', label: 'OVERLOAD'}]} onChange={createHandler('algorithm')} isPLocked={isParamLocked(track, pLocks, 'algorithm')} />
+            <Knob label="TIMBRE" value={getParamValue(track, pLocks, 'timbre')} min={0} max={100} onChange={createHandler('timbre')} isPLocked={isParamLocked(track, pLocks, 'timbre')} mapInfo={{ path: `tracks.${track.id}.params.timbre`, label: `${track.name} Timbre` }} />
+            <Knob label="DRIVE" value={getParamValue(track, pLocks, 'drive')} min={0} max={100} onChange={createHandler('drive')} isPLocked={isParamLocked(track, pLocks, 'drive')} mapInfo={{ path: `tracks.${track.id}.params.drive`, label: `${track.name} Drive` }} />
+            <Knob label="FOLD" value={getParamValue(track, pLocks, 'fold')} min={0} max={100} onChange={createHandler('fold')} isPLocked={isParamLocked(track, pLocks, 'fold')} mapInfo={{ path: `tracks.${track.id}.params.fold`, label: `${track.name} Fold` }} />
         </Section>
         <FilterSection basePath="filter" track={track} pLocks={pLocks} onParamChange={onParamChange} />
         <LFOSection title="LFO 1" basePath="lfo1" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
@@ -429,52 +433,58 @@ const RuinEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, 
 };
 
 const ArtificeEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, onParamChange }) => {
+    const params = track.params as ArtificeParams;
     const DESTINATIONS: {value: LFODestination, label: string}[] = [ ...COMMON_DESTINATIONS,
         {value: 'artifice.osc1_shape', label: 'OSC1 SHAPE'}, {value: 'artifice.osc2_shape', label: 'OSC2 SHAPE'},
         {value: 'artifice.osc2_pitch', label: 'OSC2 PITCH'}, {value: 'artifice.fm_amount', label: 'FM AMT'},
-        {value: 'artifice.osc_mix', label: 'OSC MIX'}, {value: 'artifice.noise_level', label: 'NOISE'},
-        {value: 'artifice.filter_cutoff', label: 'FILT CUTOFF'}, {value: 'artifice.filter_res', label: 'FILT RESO'},
+        {value: 'artifice.osc_mix', label: 'OSC MIX'}, {value: 'artifice.noise_level', label: 'NOISE LVL'},
+        {value: 'artifice.filter_cutoff', label: 'FILT CUT'}, {value: 'artifice.filter_res', label: 'FILT RES'},
         {value: 'artifice.filter_spread', label: 'FILT SPREAD'}, {value: 'artifice.filterEnvAmount', label: 'FILT ENV AMT'},
     ];
     const createHandler = (path: string) => useCallback((v: any) => onParamChange(path, v), [path, onParamChange]);
+    
     return <>
-        <Section title="OSCILLATORS" className="grid-cols-2 md:grid-cols-4">
+        <Section title="OSCILLATORS" className="grid-cols-2 md:grid-cols-5">
             <Knob label="SHAPE 1" value={getParamValue(track, pLocks, 'osc1_shape')} min={0} max={100} onChange={createHandler('osc1_shape')} isPLocked={isParamLocked(track, pLocks, 'osc1_shape')} mapInfo={{ path: `tracks.${track.id}.params.osc1_shape`, label: `${track.name} Osc1 Shape` }} />
             <Knob label="SHAPE 2" value={getParamValue(track, pLocks, 'osc2_shape')} min={0} max={100} onChange={createHandler('osc2_shape')} isPLocked={isParamLocked(track, pLocks, 'osc2_shape')} mapInfo={{ path: `tracks.${track.id}.params.osc2_shape`, label: `${track.name} Osc2 Shape` }} />
             <Knob label="PITCH 2" value={getParamValue(track, pLocks, 'osc2_pitch')} min={-36} max={36} step={1} onChange={createHandler('osc2_pitch')} unit="st" isPLocked={isParamLocked(track, pLocks, 'osc2_pitch')} mapInfo={{ path: `tracks.${track.id}.params.osc2_pitch`, label: `${track.name} Osc2 Pitch` }} />
             <Knob label="FINE 2" value={getParamValue(track, pLocks, 'osc2_fine')} min={-100} max={100} step={1} onChange={createHandler('osc2_fine')} unit="c" isPLocked={isParamLocked(track, pLocks, 'osc2_fine')} mapInfo={{ path: `tracks.${track.id}.params.osc2_fine`, label: `${track.name} Osc2 Fine` }} />
+            <Knob label="FM AMT" value={getParamValue(track, pLocks, 'fm_amount')} min={0} max={100} onChange={createHandler('fm_amount')} isPLocked={isParamLocked(track, pLocks, 'fm_amount')} mapInfo={{ path: `tracks.${track.id}.params.fm_amount`, label: `${track.name} FM Amount` }} />
         </Section>
-        <Section title="MIXER" className="grid-cols-3">
-             <Knob label="OSC MIX" value={getParamValue(track, pLocks, 'osc_mix')} min={-100} max={100} onChange={createHandler('osc_mix')} isPLocked={isParamLocked(track, pLocks, 'osc_mix')} mapInfo={{ path: `tracks.${track.id}.params.osc_mix`, label: `${track.name} Osc Mix` }}/>
-             <Knob label="FM AMT" value={getParamValue(track, pLocks, 'fm_amount')} min={0} max={100} onChange={createHandler('fm_amount')} isPLocked={isParamLocked(track, pLocks, 'fm_amount')} mapInfo={{ path: `tracks.${track.id}.params.fm_amount`, label: `${track.name} FM Amount` }}/>
-             <Knob label="NOISE" value={getParamValue(track, pLocks, 'noise_level')} min={0} max={100} onChange={createHandler('noise_level')} isPLocked={isParamLocked(track, pLocks, 'noise_level')} mapInfo={{ path: `tracks.${track.id}.params.noise_level`, label: `${track.name} Noise` }}/>
-        </Section>
-        <Section title="DUAL FILTER" className="grid-cols-2 md:grid-cols-4">
-            <Selector label="MODE" value={getParamValue(track, pLocks, 'filter_mode')} options={[{value: 'lp_hp_p', label: 'LP/HP PAR'}, {value: 'lp_hp_s', label: 'LP/HP SER'}, {value: 'bp_bp_p', label: 'BP/BP PAR'}]} onChange={createHandler('filter_mode')} isPLocked={isParamLocked(track, pLocks, 'filter_mode')} />
-            <Knob label="CUTOFF" value={getParamValue(track, pLocks, 'filter_cutoff')} min={20} max={20000} onChange={createHandler('filter_cutoff')} isPLocked={isParamLocked(track, pLocks, 'filter_cutoff')} mapInfo={{ path: `tracks.${track.id}.params.filter_cutoff`, label: `${track.name} Filter Cutoff` }}/>
-            <Knob label="RESO" value={getParamValue(track, pLocks, 'filter_res')} min={0.1} max={30} step={0.1} onChange={createHandler('filter_res')} isPLocked={isParamLocked(track, pLocks, 'filter_res')} mapInfo={{ path: `tracks.${track.id}.params.filter_res`, label: `${track.name} Filter Reso` }}/>
-            <Knob label="SPREAD" value={getParamValue(track, pLocks, 'filter_spread')} min={-48} max={48} step={1} onChange={createHandler('filter_spread')} isPLocked={isParamLocked(track, pLocks, 'filter_spread')} mapInfo={{ path: `tracks.${track.id}.params.filter_spread`, label: `${track.name} Filter Spread` }}/>
+        <Section title="MIXER" className="grid-cols-2">
+            <Knob label="OSC MIX" value={getParamValue(track, pLocks, 'osc_mix')} min={-100} max={100} onChange={createHandler('osc_mix')} displayTransform={v=> v < 0 ? `O1 ${Math.abs(v)}%` : v > 0 ? `O2 ${v}%` : '50/50'} isPLocked={isParamLocked(track, pLocks, 'osc_mix')} mapInfo={{ path: `tracks.${track.id}.params.osc_mix`, label: `${track.name} Osc Mix` }} />
+            <Knob label="NOISE" value={getParamValue(track, pLocks, 'noise_level')} min={0} max={100} onChange={createHandler('noise_level')} isPLocked={isParamLocked(track, pLocks, 'noise_level')} mapInfo={{ path: `tracks.${track.id}.params.noise_level`, label: `${track.name} Noise Level` }} />
         </Section>
         <EnvelopeSection basePath="ampEnv" track={track} pLocks={pLocks} onParamChange={onParamChange} title="AMP ENVELOPE" />
-        <EnvelopeSection basePath="filterEnv" track={track} pLocks={pLocks} onParamChange={onParamChange} title="FILTER ENVELOPE" extraControls={<Knob label="AMT" value={getParamValue(track, pLocks, 'filterEnvAmount')} min={-10000} max={10000} onChange={createHandler('filterEnvAmount')} isPLocked={isParamLocked(track, pLocks, 'filterEnvAmount')} mapInfo={{ path: `tracks.${track.id}.params.filterEnvAmount`, label: `${track.name} Filter Env Amt` }}/>} />
+        <EnvelopeSection basePath="filterEnv" track={track} pLocks={pLocks} onParamChange={onParamChange} title="FILTER ENVELOPE"
+            extraControls={<Knob label="ENV AMT" value={getParamValue(track, pLocks, 'filterEnvAmount')} min={-10000} max={10000} onChange={createHandler('filterEnvAmount')} isPLocked={isParamLocked(track, pLocks, 'filterEnvAmount')} mapInfo={{ path: `tracks.${track.id}.params.filterEnvAmount`, label: `${track.name} Filter Env Amt` }} />}
+        />
+        <Section title="DUAL FILTER" className="grid-cols-2 md:grid-cols-4">
+            <Selector label="MODE" value={params.filter_mode} options={[{value: 'lp_hp_p', label: 'LP/HP PARALLEL'}, {value: 'lp_hp_s', label: 'LP > HP SERIES'}, {value: 'bp_bp_p', label: 'DUAL BP PARALLEL'}]} onChange={createHandler('filter_mode')} isPLocked={isParamLocked(track, pLocks, 'filter_mode')} />
+            <Knob label="CUTOFF" value={getParamValue(track, pLocks, 'filter_cutoff')} min={20} max={20000} onChange={createHandler('filter_cutoff')} isPLocked={isParamLocked(track, pLocks, 'filter_cutoff')} mapInfo={{ path: `tracks.${track.id}.params.filter_cutoff`, label: `${track.name} Filter Cutoff` }} />
+            <Knob label="RESO" value={getParamValue(track, pLocks, 'filter_res')} min={0.1} max={30} step={0.1} onChange={createHandler('filter_res')} isPLocked={isParamLocked(track, pLocks, 'filter_res')} mapInfo={{ path: `tracks.${track.id}.params.filter_res`, label: `${track.name} Filter Reso` }} />
+            <Knob label="SPREAD" value={getParamValue(track, pLocks, 'filter_spread')} min={-48} max={48} step={1} onChange={createHandler('filter_spread')} unit="st" isPLocked={isParamLocked(track, pLocks, 'filter_spread')} mapInfo={{ path: `tracks.${track.id}.params.filter_spread`, label: `${track.name} Filter Spread` }} />
+        </Section>
         <LFOSection title="LFO 1" basePath="lfo1" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
         <LFOSection title="LFO 2" basePath="lfo2" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
     </>;
 };
 
 const ShiftEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, onParamChange }) => {
+    const params = track.params as ShiftParams;
     const DESTINATIONS: {value: LFODestination, label: string}[] = [ ...COMMON_DESTINATIONS,
         {value: 'shift.pitch', label: 'PITCH'}, {value: 'shift.position', label: 'POSITION'},
         {value: 'shift.bend', label: 'BEND'}, {value: 'shift.twist', label: 'TWIST'},
     ];
     const createHandler = (path: string) => useCallback((v: any) => onParamChange(path, v), [path, onParamChange]);
+    
     return <>
         <Section title="WAVETABLE" className="grid-cols-2 md:grid-cols-5">
-            <Knob label="PITCH" value={getParamValue(track, pLocks, 'pitch')} min={12} max={84} step={1} onChange={createHandler('pitch')} isPLocked={isParamLocked(track, pLocks, 'pitch')} mapInfo={{ path: `tracks.${track.id}.params.pitch`, label: `${track.name} Pitch` }}/>
-            <Selector label="TABLE" value={getParamValue(track, pLocks, 'table')} options={[{value: 0, label: 'CLSC'}, {value: 1, label: 'SPCT'}, {value: 2, label: 'FRMT'}, {value: 3, label: 'MDRN'}]} onChange={createHandler('table')} isPLocked={isParamLocked(track, pLocks, 'table')} />
-            <Knob label="POSITION" value={getParamValue(track, pLocks, 'position')} min={0} max={100} onChange={createHandler('position')} isPLocked={isParamLocked(track, pLocks, 'position')} mapInfo={{ path: `tracks.${track.id}.params.position`, label: `${track.name} Position` }}/>
-            <Knob label="BEND" value={getParamValue(track, pLocks, 'bend')} min={0} max={100} onChange={createHandler('bend')} isPLocked={isParamLocked(track, pLocks, 'bend')} mapInfo={{ path: `tracks.${track.id}.params.bend`, label: `${track.name} Bend` }}/>
-            <Knob label="TWIST" value={getParamValue(track, pLocks, 'twist')} min={0} max={100} onChange={createHandler('twist')} isPLocked={isParamLocked(track, pLocks, 'twist')} mapInfo={{ path: `tracks.${track.id}.params.twist`, label: `${track.name} Twist` }}/>
+            <Knob label="PITCH" value={getParamValue(track, pLocks, 'pitch')} min={12} max={108} step={1} onChange={createHandler('pitch')} displayTransform={v => midiToNoteName(v)} isPLocked={isParamLocked(track, pLocks, 'pitch')} mapInfo={{ path: `tracks.${track.id}.params.pitch`, label: `${track.name} Pitch` }} />
+            <Selector label="TABLE" value={params.table} options={[{value: 0, label: 'SAW-SQR'}, {value: 1, label: 'SQR-TRI'}, {value: 2, label: 'FORMANT'}, {value: 3, label: 'DIGITAL'}]} onChange={createHandler('table')} isPLocked={isParamLocked(track, pLocks, 'table')} />
+            <Knob label="POS" value={getParamValue(track, pLocks, 'position')} min={0} max={100} onChange={createHandler('position')} isPLocked={isParamLocked(track, pLocks, 'position')} mapInfo={{ path: `tracks.${track.id}.params.position`, label: `${track.name} Position` }} />
+            <Knob label="BEND" value={getParamValue(track, pLocks, 'bend')} min={0} max={100} onChange={createHandler('bend')} isPLocked={isParamLocked(track, pLocks, 'bend')} mapInfo={{ path: `tracks.${track.id}.params.bend`, label: `${track.name} Bend` }} />
+            <Knob label="TWIST" value={getParamValue(track, pLocks, 'twist')} min={0} max={100} onChange={createHandler('twist')} isPLocked={isParamLocked(track, pLocks, 'twist')} mapInfo={{ path: `tracks.${track.id}.params.twist`, label: `${track.name} Twist` }} />
         </Section>
         <EnvelopeSection basePath="ampEnv" track={track} pLocks={pLocks} onParamChange={onParamChange} title="AMP ENVELOPE" />
         <FilterSection basePath="filter" track={track} pLocks={pLocks} onParamChange={onParamChange} />
@@ -484,22 +494,24 @@ const ShiftEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks,
 };
 
 const ResonEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, onParamChange }) => {
+    const params = track.params as ResonParams;
     const DESTINATIONS: {value: LFODestination, label: string}[] = [ ...COMMON_DESTINATIONS,
         {value: 'reson.pitch', label: 'PITCH'}, {value: 'reson.structure', label: 'STRUCTURE'},
         {value: 'reson.brightness', label: 'BRIGHT'}, {value: 'reson.decay', label: 'DECAY'},
         {value: 'reson.material', label: 'MATERIAL'},
     ];
     const createHandler = (path: string) => useCallback((v: any) => onParamChange(path, v), [path, onParamChange]);
+    
     return <>
         <Section title="RESONATOR" className="grid-cols-2 md:grid-cols-5">
-            <Knob label="PITCH" value={getParamValue(track, pLocks, 'pitch')} min={12} max={96} step={1} onChange={createHandler('pitch')} isPLocked={isParamLocked(track, pLocks, 'pitch')} mapInfo={{ path: `tracks.${track.id}.params.pitch`, label: `${track.name} Pitch` }}/>
-            <Knob label="STRUCTURE" value={getParamValue(track, pLocks, 'structure')} min={0} max={100} onChange={createHandler('structure')} isPLocked={isParamLocked(track, pLocks, 'structure')} mapInfo={{ path: `tracks.${track.id}.params.structure`, label: `${track.name} Structure` }}/>
-            <Knob label="BRIGHT" value={getParamValue(track, pLocks, 'brightness')} min={100} max={18000} onChange={createHandler('brightness')} isPLocked={isParamLocked(track, pLocks, 'brightness')} mapInfo={{ path: `tracks.${track.id}.params.brightness`, label: `${track.name} Brightness` }}/>
-            <Knob label="DECAY" value={getParamValue(track, pLocks, 'decay')} min={0.8} max={0.999} step={0.001} onChange={createHandler('decay')} isPLocked={isParamLocked(track, pLocks, 'decay')} mapInfo={{ path: `tracks.${track.id}.params.decay`, label: `${track.name} Decay` }}/>
-            <Knob label="MATERIAL" value={getParamValue(track, pLocks, 'material')} min={0} max={100} onChange={createHandler('material')} isPLocked={isParamLocked(track, pLocks, 'material')} mapInfo={{ path: `tracks.${track.id}.params.material`, label: `${track.name} Material` }}/>
+            <Knob label="PITCH" value={getParamValue(track, pLocks, 'pitch')} min={12} max={108} step={1} onChange={createHandler('pitch')} displayTransform={v => midiToNoteName(v)} isPLocked={isParamLocked(track, pLocks, 'pitch')} mapInfo={{ path: `tracks.${track.id}.params.pitch`, label: `${track.name} Pitch` }} />
+            <Knob label="STRUCTURE" value={getParamValue(track, pLocks, 'structure')} min={0} max={100} onChange={createHandler('structure')} isPLocked={isParamLocked(track, pLocks, 'structure')} mapInfo={{ path: `tracks.${track.id}.params.structure`, label: `${track.name} Structure` }} />
+            <Knob label="BRIGHT" value={getParamValue(track, pLocks, 'brightness')} min={1000} max={20000} onChange={createHandler('brightness')} isPLocked={isParamLocked(track, pLocks, 'brightness')} mapInfo={{ path: `tracks.${track.id}.params.brightness`, label: `${track.name} Brightness` }} />
+            <Knob label="DECAY" value={getParamValue(track, pLocks, 'decay')} min={0.8} max={0.999} step={0.001} onChange={createHandler('decay')} isPLocked={isParamLocked(track, pLocks, 'decay')} mapInfo={{ path: `tracks.${track.id}.params.decay`, label: `${track.name} Decay` }} />
+            <Knob label="MATERIAL" value={getParamValue(track, pLocks, 'material')} min={0} max={100} onChange={createHandler('material')} isPLocked={isParamLocked(track, pLocks, 'material')} mapInfo={{ path: `tracks.${track.id}.params.material`, label: `${track.name} Material` }} />
         </Section>
-        <Section title="EXCITER" className="grid-cols-2">
-            <Selector label="TYPE" value={getParamValue(track, pLocks, 'exciter_type')} options={[{value: 'noise', label: 'NOISE'}, {value: 'impulse', label: 'IMPULSE'}]} onChange={createHandler('exciter_type')} isPLocked={isParamLocked(track, pLocks, 'exciter_type')} />
+        <Section title="EXCITER" className="grid-cols-1">
+            <Selector label="TYPE" value={params.exciter_type} options={[{value: 'noise', label: 'FILTERED NOISE'}, {value: 'impulse', label: 'SHORT IMPULSE'}]} onChange={createHandler('exciter_type')} isPLocked={isParamLocked(track, pLocks, 'exciter_type')} />
         </Section>
         <EnvelopeSection basePath="ampEnv" track={track} pLocks={pLocks} onParamChange={onParamChange} title="AMP ENVELOPE" />
         <FilterSection basePath="filter" track={track} pLocks={pLocks} onParamChange={onParamChange} />
@@ -509,21 +521,24 @@ const ResonEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks,
 };
 
 const AlloyEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, onParamChange }) => {
+    const params = track.params as AlloyParams;
     const DESTINATIONS: {value: LFODestination, label: string}[] = [ ...COMMON_DESTINATIONS,
-        {value: 'alloy.pitch', label: 'PITCH'}, {value: 'alloy.ratio', label: 'RATIO'}, {value: 'alloy.feedback', label: 'FEEDBACK'},
-        {value: 'alloy.mod_level', label: 'MOD LVL'}, {value: 'alloy.mod_decay', label: 'MOD DECAY'},
+        {value: 'alloy.pitch', label: 'PITCH'}, {value: 'alloy.ratio', label: 'RATIO'},
+        {value: 'alloy.feedback', label: 'FEEDBACK'}, {value: 'alloy.mod_level', label: 'MOD LEVEL'},
+        {value: 'alloy.mod_decay', label: 'MOD DECAY'},
     ];
     const createHandler = (path: string) => useCallback((v: any) => onParamChange(path, v), [path, onParamChange]);
+    
     return <>
-        <Section title="OPERATORS" className="grid-cols-2 md:grid-cols-4">
-            <Knob label="PITCH" value={getParamValue(track, pLocks, 'pitch')} min={12} max={96} step={1} onChange={createHandler('pitch')} isPLocked={isParamLocked(track, pLocks, 'pitch')} mapInfo={{ path: `tracks.${track.id}.params.pitch`, label: `${track.name} Pitch` }}/>
-            <Knob label="RATIO" value={getParamValue(track, pLocks, 'ratio')} min={0.1} max={16} step={0.01} onChange={createHandler('ratio')} isPLocked={isParamLocked(track, pLocks, 'ratio')} mapInfo={{ path: `tracks.${track.id}.params.ratio`, label: `${track.name} Ratio` }}/>
-            <Knob label="FEEDBACK" value={getParamValue(track, pLocks, 'feedback')} min={0} max={100} onChange={createHandler('feedback')} isPLocked={isParamLocked(track, pLocks, 'feedback')} mapInfo={{ path: `tracks.${track.id}.params.feedback`, label: `${track.name} Feedback` }}/>
-            <Knob label="MOD LVL" value={getParamValue(track, pLocks, 'mod_level')} min={0} max={100} onChange={createHandler('mod_level')} isPLocked={isParamLocked(track, pLocks, 'mod_level')} mapInfo={{ path: `tracks.${track.id}.params.mod_level`, label: `${track.name} Mod Level` }}/>
+        <Section title="OPERATORS" className="grid-cols-2 md:grid-cols-3">
+            <Knob label="PITCH" value={getParamValue(track, pLocks, 'pitch')} min={12} max={108} step={1} onChange={createHandler('pitch')} displayTransform={v => midiToNoteName(v)} isPLocked={isParamLocked(track, pLocks, 'pitch')} mapInfo={{ path: `tracks.${track.id}.params.pitch`, label: `${track.name} Pitch` }} />
+            <Knob label="RATIO" value={getParamValue(track, pLocks, 'ratio')} min={0.1} max={8} step={0.001} onChange={createHandler('ratio')} isPLocked={isParamLocked(track, pLocks, 'ratio')} mapInfo={{ path: `tracks.${track.id}.params.ratio`, label: `${track.name} Ratio` }} />
+            <Knob label="FEEDBACK" value={getParamValue(track, pLocks, 'feedback')} min={0} max={100} onChange={createHandler('feedback')} isPLocked={isParamLocked(track, pLocks, 'feedback')} mapInfo={{ path: `tracks.${track.id}.params.feedback`, label: `${track.name} Feedback` }} />
         </Section>
-        <Section title="MOD ENVELOPE" className="grid-cols-2">
-            <Knob label="ATK" value={getParamValue(track, pLocks, 'mod_attack')} min={0.001} max={2} step={0.001} onChange={createHandler('mod_attack')} isPLocked={isParamLocked(track, pLocks, 'mod_attack')} mapInfo={{ path: `tracks.${track.id}.params.mod_attack`, label: `${track.name} Mod Atk` }}/>
-            <Knob label="DEC" value={getParamValue(track, pLocks, 'mod_decay')} min={0.01} max={4} step={0.01} onChange={createHandler('mod_decay')} isPLocked={isParamLocked(track, pLocks, 'mod_decay')} mapInfo={{ path: `tracks.${track.id}.params.mod_decay`, label: `${track.name} Mod Dec` }}/>
+        <Section title="MODULATOR ENVELOPE" className="grid-cols-3">
+            <Knob label="LEVEL" value={getParamValue(track, pLocks, 'mod_level')} min={0} max={100} onChange={createHandler('mod_level')} isPLocked={isParamLocked(track, pLocks, 'mod_level')} mapInfo={{ path: `tracks.${track.id}.params.mod_level`, label: `${track.name} Mod Level` }} />
+            <Knob label="ATK" value={getParamValue(track, pLocks, 'mod_attack')} min={0.001} max={2} step={0.001} onChange={createHandler('mod_attack')} isPLocked={isParamLocked(track, pLocks, 'mod_attack')} mapInfo={{ path: `tracks.${track.id}.params.mod_attack`, label: `${track.name} Mod Attack` }} />
+            <Knob label="DECAY" value={getParamValue(track, pLocks, 'mod_decay')} min={0.01} max={4} step={0.01} onChange={createHandler('mod_decay')} isPLocked={isParamLocked(track, pLocks, 'mod_decay')} mapInfo={{ path: `tracks.${track.id}.params.mod_decay`, label: `${track.name} Mod Decay` }} />
         </Section>
         <EnvelopeSection basePath="ampEnv" track={track} pLocks={pLocks} onParamChange={onParamChange} title="AMP ENVELOPE" />
         <FilterSection basePath="filter" track={track} pLocks={pLocks} onParamChange={onParamChange} />
@@ -532,245 +547,142 @@ const AlloyEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks,
     </>;
 };
 
-const MidiEditor: React.FC<{
+const MidiOutEditor: React.FC<{
     track: Track;
     pLocks: PLocks | null;
-    onMidiOutParamChange: (key: keyof MidiOutParams, value: any) => void;
-}> = ({ track, pLocks, onMidiOutParamChange }) => {
-    const { midiOutputs } = useStore(state => ({
-        midiOutputs: state.midiOutputs,
-    }), shallow);
+    onParamChange: (key: keyof MidiOutParams, value: any) => void;
+    onAddCcLock: () => void;
+    onUpdateCcLock: (id: string, cc?: number, value?: number) => void;
+    onRemoveCcLock: (id: string) => void;
+}> = ({ track, pLocks, onParamChange, onAddCcLock, onUpdateCcLock, onRemoveCcLock }) => {
+    const midiOutputs = useStore(state => state.midiOutputs);
+    const outputOptions = [{ value: null, label: 'NONE' }, ...midiOutputs.map(o => ({ value: o.id, label: o.name || `Output ${o.id.substring(0,6)}` }))];
+    const channelOptions = Array.from({ length: 16 }, (_, i) => ({ value: i + 1, label: `CH ${i + 1}` }));
+    
+    const ccLocks = pLocks?.ccLocks || [];
 
-    const outputOptions = [{ value: 'none', label: 'NONE' }, ...midiOutputs.map(o => ({ value: o.id, label: o.name || o.id }))];
-    
-    const handleDeviceChange = useCallback((v: any) => onMidiOutParamChange('deviceId', v === 'none' ? null : v), [onMidiOutParamChange]);
-    const handleChannelChange = useCallback((v: number) => onMidiOutParamChange('channel', v), [onMidiOutParamChange]);
-    
     return (
-        <Section title="MIDI OUTPUT" className="grid-cols-2">
-            <Selector 
-                label="DEVICE"
-                value={getMidiOutParamValue(track, pLocks, 'deviceId') || 'none'}
-                options={outputOptions}
-                onChange={handleDeviceChange}
-                isPLocked={isMidiOutParamLocked(pLocks, 'deviceId')}
-            />
-            <Knob 
-                label="CHANNEL"
-                value={getMidiOutParamValue(track, pLocks, 'channel')}
-                min={1} max={16} step={1}
-                onChange={handleChannelChange}
-                isPLocked={isMidiOutParamLocked(pLocks, 'channel')}
-                mapInfo={{ path: `tracks.${track.id}.params.channel`, label: `${track.name} MIDI Chan` }}
-            />
-        </Section>
+        <div className="space-y-4">
+            <Section title="MIDI OUTPUT">
+                <Selector label="DEVICE" value={getMidiOutParamValue(track, pLocks, 'deviceId')} options={outputOptions} onChange={v => onParamChange('deviceId', v)} isPLocked={isMidiOutParamLocked(pLocks, 'deviceId')} />
+                <Selector label="CHANNEL" value={getMidiOutParamValue(track, pLocks, 'channel')} options={channelOptions} onChange={v => onParamChange('channel', v)} isPLocked={isMidiOutParamLocked(pLocks, 'channel')} />
+            </Section>
+             <Section title="CC P-LOCKS">
+                <div className="col-span-full space-y-2">
+                    {ccLocks.map(lock => (
+                        <div key={lock.id} className="flex items-center space-x-2">
+                            <Knob label="CC" value={lock.cc} min={0} max={127} step={1} onChange={v => onUpdateCcLock(lock.id, v)} size={40} />
+                            <Knob label="VALUE" value={lock.value} min={0} max={127} step={1} onChange={v => onUpdateCcLock(lock.id, undefined, v)} size={40} />
+                            <button onClick={() => onRemoveCcLock(lock.id)} className="h-8 px-2 text-xs font-bold rounded-sm bg-red-800 hover:bg-red-700 border border-red-900 transition-colors text-white">DEL</button>
+                        </div>
+                    ))}
+                    <button onClick={onAddCcLock} className="w-full h-8 text-xs font-bold rounded-sm bg-blue-800 hover:bg-blue-700 border border-blue-900 transition-colors text-white">ADD CC LOCK</button>
+                </div>
+            </Section>
+        </div>
     );
 };
 
-const MidiInfoPanel: React.FC = () => (
-    <div className="px-2 pt-4 h-full flex flex-col items-center justify-center text-center">
-        <div className="p-4 bg-[var(--bg-panel-dark)] border border-[var(--border-color)]/50 rounded-lg">
-            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-cyan-400/50 mb-3">
-                <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2v0Z" />
-                <path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12v0Z"/>
-                <path d="M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4v0Z" />
-            </svg>
-            <h4 className="font-bold text-cyan-400">MIDI CC AUTOMATION</h4>
-            <p className="text-xs text-neutral-400 mt-2">
-                Enable <span className="font-bold text-white">P-LOCK</span> mode and select a step in the sequencer to add or edit MIDI Control Change messages.
-            </p>
-        </div>
-    </div>
-);
-
-const MidiCcEditor: React.FC = () => {
-    const { track, pLocks, addMidiCcLock, updateMidiCcLock, removeMidiCcLock } = useStore(state => {
-         const pLockTrack = state.selectedPLockStep ? state.preset?.tracks?.find(t => t.id === state.selectedPLockStep!.trackId) : null;
-         const pLockStepState = pLockTrack ? pLockTrack.patterns[pLockTrack.activePatternIndex][state.selectedPLockStep!.stepIndex] : null;
-        return {
-            track: pLockTrack,
-            pLocks: pLockStepState?.pLocks || null,
-            addMidiCcLock: state.addMidiCcLock,
-            updateMidiCcLock: state.updateMidiCcLock,
-            removeMidiCcLock: state.removeMidiCcLock,
-        }
-    }, shallow);
-    
-    if (!track || track.type !== 'midi') return null;
-
-    const ccLocks = pLocks?.ccLocks || [];
-    
-    return (
-         <div className="px-2 pt-4 h-full flex flex-col">
-            <div className="bg-[var(--bg-panel-dark)] rounded-md border border-[var(--border-color)]/50 p-2 flex-grow flex flex-col">
-                <h3 className="text-sm font-medium text-cyan-400 uppercase tracking-wider mb-3 text-center">MIDI CC P-LOCKS</h3>
-                <div className="flex-grow space-y-2 overflow-y-auto no-scrollbar pr-1">
-                    {ccLocks.map((lock) => (
-                        <div key={lock.id} className="flex items-center gap-2 bg-black/20 p-1 rounded">
-                             <input
-                                type="number"
-                                value={lock.cc}
-                                min="0" max="127"
-                                onChange={(e) => updateMidiCcLock(lock.id, parseInt(e.target.value))}
-                                className="w-16 bg-[var(--bg-control)] border border-[var(--border-color)] rounded-sm text-xs px-2 py-1 text-center"
-                                title="CC Number"
-                            />
-                            <Knob
-                                label={`CC ${lock.cc}`}
-                                value={lock.value}
-                                min={0} max={127} step={1}
-                                onChange={(v) => updateMidiCcLock(lock.id, undefined, v)}
-                                size={36}
-                                className="flex-grow"
-                            />
-                            <button onClick={() => removeMidiCcLock(lock.id)} className="w-6 h-6 flex-shrink-0 bg-red-800/80 text-white rounded text-xs hover:bg-red-700">X</button>
-                        </div>
-                    ))}
-                </div>
-                <button onClick={addMidiCcLock} className="mt-2 w-full py-2 text-xs font-bold bg-cyan-800/80 hover:bg-cyan-700 rounded border border-cyan-700 text-white">
-                    + ADD CC
-                </button>
-            </div>
-        </div>
-    );
-}
 
 const InstrumentEditor: React.FC = () => {
-    const {
-        track, pLocks, onParamChange, onVolumeChange,
-        onPanChange, onFxSendChange, instrumentPresets, onSaveInstrumentPreset,
-        onLoadInstrumentPreset, onDeleteInstrumentPreset, onRandomizeInstrument,
-        onImportInstrumentPresets, onExportInstrumentPresets, onMidiOutParamChange, isSpectator, triggerViewerModeInteraction,
-        isPLockModeActive, selectedPLockStep, isViewerMode,
-    } = useStore(state => {
-        let selectedTrack = state.preset?.tracks?.find(t => t.id === state.selectedTrackId);
-        
-        // If track params are empty (e.g., in viewer mode for locked tracks),
-        // create a temporary track object with default params for display purposes.
-        if (selectedTrack && Object.keys(selectedTrack.params).length === 0) {
-            selectedTrack = {
-                ...selectedTrack,
-                params: getInitialParamsForType(selectedTrack.type),
-            };
-        }
+  // Performance: Split state selection into smaller, more focused hooks
+  const { selectedTrackId, selectedPLockStep, isViewerMode } = useStore(state => ({
+    selectedTrackId: state.selectedTrackId,
+    selectedPLockStep: state.selectedPLockStep,
+    isViewerMode: state.isViewerMode,
+  }), shallow);
+  
+  const track = useStore(state => state.preset.tracks.find(t => t.id === selectedTrackId));
 
-        const pLockTrack = state.selectedPLockStep ? state.preset?.tracks?.find(t => t.id === state.selectedPLockStep!.trackId) : null;
-        const pLockStepState = pLockTrack ? pLockTrack.patterns[pLockTrack.activePatternIndex][state.selectedPLockStep!.stepIndex] : null;
-        
-        return {
-            track: selectedTrack || null,
-            pLocks: pLockStepState?.pLocks || null,
-            onParamChange: state.setParam,
-            onVolumeChange: state.setTrackVolume,
-            onPanChange: state.setTrackPan,
-            onFxSendChange: state.setFxSend,
-            instrumentPresets: state.instrumentPresets,
-            onSaveInstrumentPreset: state.saveInstrumentPreset,
-            onLoadInstrumentPreset: state.loadInstrumentPreset,
-            onDeleteInstrumentPreset: state.deleteInstrumentPreset,
-            onRandomizeInstrument: state.randomizeInstrument,
-            onImportInstrumentPresets: state.importInstrumentPresets,
-            onExportInstrumentPresets: state.exportInstrumentPresets,
-            onMidiOutParamChange: state.setMidiOutParam,
-            isSpectator: state.isSpectator,
-            isViewerMode: state.isViewerMode,
-            triggerViewerModeInteraction: state.triggerViewerModeInteraction,
-            isPLockModeActive: state.isPLockModeActive,
-            selectedPLockStep: state.selectedPLockStep,
-        };
-    }, shallow);
+  const {
+    setParam, setTrackVolume, setTrackPan, setFxSend, setMidiOutParam,
+    saveInstrumentPreset, loadInstrumentPreset, deleteInstrumentPreset,
+    randomizeInstrument, importInstrumentPresets, exportInstrumentPresets, triggerViewerModeInteraction,
+    addMidiCcLock, updateMidiCcLock, removeMidiCcLock,
+  } = useStore(state => ({
+    setParam: state.setParam,
+    setTrackVolume: state.setTrackVolume,
+    setTrackPan: state.setTrackPan,
+    setFxSend: state.setFxSend,
+    setMidiOutParam: state.setMidiOutParam,
+    saveInstrumentPreset: state.saveInstrumentPreset,
+    loadInstrumentPreset: state.loadInstrumentPreset,
+    deleteInstrumentPreset: state.deleteInstrumentPreset,
+    randomizeInstrument: state.randomizeInstrument,
+    importInstrumentPresets: state.importInstrumentPresets,
+    exportInstrumentPresets: state.exportInstrumentPresets,
+    triggerViewerModeInteraction: state.triggerViewerModeInteraction,
+    addMidiCcLock: state.addMidiCcLock,
+    updateMidiCcLock: state.updateMidiCcLock,
+    removeMidiCcLock: state.removeMidiCcLock,
+  }), shallow);
 
-    if (!track) {
-        return (
-            <div className="h-full flex flex-col bg-[var(--bg-chassis)]" data-tour-id="instrument-editor">
-                <div className="bg-[var(--bg-panel-dark)] p-2 border-b border-[var(--border-color)] flex items-center justify-between flex-shrink-0">
-                    <h2 className="text-sm font-bold text-[var(--text-light)] uppercase tracking-widest">NO TRACK</h2>
-                </div>
-                <div className="flex-grow flex items-center justify-center text-neutral-500">
-                    Select a track to begin editing.
-                </div>
-            </div>
-        );
-    }
-    
-    // Wrap all knobs to disable them in spectator mode or viewer mode for locked tracks
-    const renderKnobs = (children: React.ReactNode) => {
-        const isDisabled = isSpectator || (isViewerMode && track.id >= 3);
-        return React.Children.map(children, (child) => {
-            if (React.isValidElement(child) && (child.type === Knob || child.type === Selector)) {
-                return React.cloneElement(child, { 
-                    ...child.props, 
-                    disabled: isDisabled,
-                    onDisabledClick: triggerViewerModeInteraction,
-                } as any);
-            }
-            if (React.isValidElement(child) && child.props.children) {
-                return React.cloneElement(child, {
-                    ...child.props,
-                    children: renderKnobs(child.props.children)
-                });
-            }
-            return child;
-        });
-    };
-    
-    const renderEditor = () => {
-        const editorProps = { track, pLocks, onParamChange };
-        let specificEditor;
-        switch (track.type) {
-            case 'kick': specificEditor = <KickEditor {...editorProps} />; break;
-            case 'hat': specificEditor = <HatEditor {...editorProps} />; break;
-            case 'arcane': specificEditor = <ArcaneEditor {...editorProps} />; break;
-            case 'ruin': specificEditor = <RuinEditor {...editorProps} />; break;
-            case 'artifice': specificEditor = <ArtificeEditor {...editorProps} />; break;
-            case 'shift': specificEditor = <ShiftEditor {...editorProps} />; break;
-            case 'reson': specificEditor = <ResonEditor {...editorProps} />; break;
-            case 'alloy': specificEditor = <AlloyEditor {...editorProps} />; break;
-            case 'midi': specificEditor = <MidiEditor track={track} pLocks={pLocks} onMidiOutParamChange={onMidiOutParamChange} />; break;
-            default:
-                return <div>Editor not available for track type: {track.type}</div>;
-        }
-        return (
-            <>
-                {renderKnobs(specificEditor)}
-                {renderKnobs(
-                    <OutputSection 
-                        track={track}
-                        pLocks={pLocks}
-                        onVolumeChange={onVolumeChange}
-                        onPanChange={onPanChange}
-                        onFxSendChange={onFxSendChange}
-                    />
-                )}
-            </>
-        )
-    };
-    
-    const isMidiPSteplocked = isPLockModeActive && selectedPLockStep && selectedPLockStep.trackId === track.id;
+  const instrumentPresets = useStore(state => state.instrumentPresets);
+  
+  const pLocks = selectedPLockStep ? track?.patterns[track.activePatternIndex][selectedPLockStep.stepIndex]?.pLocks ?? null : null;
 
+  const handleRandomize = useCallback(() => randomizeInstrument(selectedTrackId), [randomizeInstrument, selectedTrackId]);
+
+  if (!track) {
     return (
-        <div className="h-full flex flex-col bg-[var(--bg-chassis)]" data-tour-id="instrument-editor">
-            <EditorHeader trackName={track.name} trackId={track.id} />
-            <TrackSelector layout="horizontal" />
-            <InstrumentPresetManager 
-              trackType={track.type}
-              presets={instrumentPresets}
-              onSave={onSaveInstrumentPreset}
-              onLoad={onLoadInstrumentPreset}
-              onDelete={onDeleteInstrumentPreset}
-              onRandomize={() => onRandomizeInstrument(track.id)}
-              loadedPresetName={track.loadedInstrumentPresetName}
-              onImportInstrumentPresets={onImportInstrumentPresets}
-              onExportInstrumentPresets={onExportInstrumentPresets}
-            />
-            <div className="flex-grow overflow-y-auto no-scrollbar pt-2 min-h-0 flex flex-col">
-                {renderEditor()}
-                {track.type === 'midi' && (
-                    isMidiPSteplocked ? <MidiCcEditor /> : <MidiInfoPanel />
-                )}
-            </div>
-        </div>
+      <div className="bg-[var(--bg-panel)] rounded-md border border-[var(--border-color)] h-full flex flex-col justify-between" data-tour-id="instrument-editor">
+        <TrackSelector layout="vertical" />
+      </div>
     );
+  }
+
+  const editorProps: InstrumentEditorComponentsProps = {
+    track,
+    pLocks,
+    onParamChange: setParam,
+  };
+  
+  const isDisabled = isViewerMode && track.id >= 3;
+
+  const renderEngineEditor = () => {
+    switch (track.type) {
+      case 'kick': return <KickEditor {...editorProps} />;
+      case 'hat': return <HatEditor {...editorProps} />;
+      case 'arcane': return <ArcaneEditor {...editorProps} />;
+      case 'ruin': return <RuinEditor {...editorProps} />;
+      case 'artifice': return <ArtificeEditor {...editorProps} />;
+      case 'shift': return <ShiftEditor {...editorProps} />;
+      case 'reson': return <ResonEditor {...editorProps} />;
+      case 'alloy': return <AlloyEditor {...editorProps} />;
+      case 'midi': return <MidiOutEditor track={track} pLocks={pLocks} onParamChange={setMidiOutParam} onAddCcLock={addMidiCcLock} onUpdateCcLock={updateMidiCcLock} onRemoveCcLock={removeMidiCcLock} />;
+      default: return <div className="p-4 text-center text-neutral-500">No editor for this track type.</div>;
+    }
+  };
+
+  return (
+    <div className="bg-[var(--bg-panel)] rounded-md border border-[var(--border-color)] h-full flex flex-col min-h-0" data-tour-id="instrument-editor">
+      <EditorHeader trackName={track.name} trackId={track.id} />
+      <TrackSelector layout="horizontal" />
+      {track.type !== 'midi' && (
+        <InstrumentPresetManager
+          trackType={track.type}
+          presets={instrumentPresets}
+          onSave={saveInstrumentPreset}
+          onLoad={loadInstrumentPreset}
+          onDelete={deleteInstrumentPreset}
+          onRandomize={handleRandomize}
+          loadedPresetName={track.loadedInstrumentPresetName}
+          onImportInstrumentPresets={importInstrumentPresets}
+          onExportInstrumentPresets={exportInstrumentPresets}
+        />
+      )}
+      <div className={`flex-grow min-h-0 overflow-y-auto no-scrollbar pt-2 ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`} onClick={isDisabled ? triggerViewerModeInteraction : undefined}>
+        {renderEngineEditor()}
+        <OutputSection 
+          track={track} 
+          pLocks={pLocks} 
+          onVolumeChange={setTrackVolume} 
+          onPanChange={setTrackPan} 
+          onFxSendChange={setFxSend} 
+        />
+      </div>
+    </div>
+  );
 };
 
 export default React.memo(InstrumentEditor);

@@ -65,12 +65,14 @@ const PianoKey = React.memo(({ midiNote, scaleNotes, keyHeight, isPlaying, isFol
 });
 
 export const PianoRoll: React.FC = () => {
-    const { track, onStepChange, selectedTrackId, auditionNote, sequencerPage, setSequencerPage } = useStore(state => ({
-        track: state.preset?.tracks?.find(t => t.id === state.selectedTrackId),
-        onStepChange: state.setStepProperty,
+    const { selectedTrackId, sequencerPage } = useStore(state => ({
         selectedTrackId: state.selectedTrackId,
-        auditionNote: state.auditionNote,
         sequencerPage: state.sequencerPage,
+    }), shallow);
+    const track = useStore(state => state.preset?.tracks?.find(t => t.id === selectedTrackId));
+    const { onStepChange, auditionNote, setSequencerPage } = useStore(state => ({
+        onStepChange: state.setStepProperty,
+        auditionNote: state.auditionNote,
         setSequencerPage: state.setSequencerPage,
     }), shallow);
     const currentStep = usePlaybackStore(state => state.currentStep);
