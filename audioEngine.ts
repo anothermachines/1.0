@@ -2,7 +2,7 @@ import {
     Track, StepState, PLocks, GlobalFXParams, CompressorParams, FXSends, Envelope, TrackType, MidiOutParams, LFOParams
 } from './types';
 // FIX: Import 'noteToFreq' to resolve 'Cannot find name' errors.
-import { getAutomationValue, noteToFreq } from '../utils';
+import { getAutomationValue, noteToFreq } from './utils';
 
 // Helper to ensure values are finite numbers
 const finite = (value: any, fallback: number): number => {
@@ -23,7 +23,7 @@ const noteNameToMidi = (name: string): number => {
         if (!octaveStr) return 60;
         const octave = parseInt(octaveStr, 10);
         const noteIndex = NOTE_NAMES.indexOf(noteStr);
-        if (noteIndex === -1) return 60; // Default to C4 if note name is invalid
+        if (noteIndex === -1) return 60;
         return (octave + 1) * 12 + noteIndex;
     } catch {
         return 60;
