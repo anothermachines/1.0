@@ -10,7 +10,7 @@ import { AudioEngine } from '../audioEngine';
 import { DEMO_DEFAULT_PROJECT, LICENSED_DEFAULT_PROJECT } from '../factoryProjects';
 import { INITIAL_PRESET_LIBRARY, newProjectPreset } from '../presetLibrary';
 import { INITIAL_INSTRUMENT_PRESET_LIBRARY } from '../instrumentPresetLibrary';
-import { deepClone, deepMerge, createTechnoPattern, randomizeKickParams, randomizeHatParams, randomizeArcaneParams, randomizeRuinParams, randomizeArtificeParams, randomizeShiftParams, randomizeResonParams, randomizeAlloyParams, audioBufferToWav, downloadBlob, generateEuclideanPattern, generateWaveformData, setDeep, generateWaveformForPattern, midiToNoteName } from '../utils';
+import { deepClone, deepMerge, createTechnoPattern, randomizeKickParams, randomizeHatParams, randomizeArcaneParams, randomizeRuinParams, randomizeArtificeParams, randomizeShiftParams, randomizeResonParams, randomizeAlloyParams, audioBufferToWav, downloadBlob, generateEuclideanPattern, generateWaveformData, setDeep, generateWaveformForPattern, midiToNoteName, getInitialParamsForType } from '../utils';
 import { createEmptyPatterns, INITIAL_KICK_PARAMS, INITIAL_HAT_PARAMS, INITIAL_ARCANE_PARAMS, INITIAL_RUIN_PARAMS, INITIAL_ARTIFICE_PARAMS, INITIAL_SHIFT_PARAMS, INITIAL_RESON_PARAMS, INITIAL_ALLOY_PARAMS } from '../constants';
 import { useVUMeterStore } from './vuMeterStore';
 import { usePlaybackStore } from './playbackStore';
@@ -324,17 +324,20 @@ async function renderPatternAudio(
                 engine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
                 engine.updateDelay(preset.globalFxParams.delay, preset.bpm);
                 engine.updateDrive(preset.globalFxParams.drive);
+                engine.updateCharacter(preset.globalFxParams.character);
             } else {
                 engine.updateReverb({ ...preset.globalFxParams.reverb, mix: 0 }, preset.bpm);
                 engine.updateDelay({ ...preset.globalFxParams.delay, mix: 0 }, preset.bpm);
                 engine.updateDrive({ ...preset.globalFxParams.drive, mix: 0 });
+                engine.updateCharacter({ ...preset.globalFxParams.character, mix: 0 });
             }
-             // Character, Filter, Compressor are generally not part of "wet" stems in this way
-            engine.updateCharacter({ ...preset.globalFxParams.character, mix: 0 });
-            engine.updateMasterFilter({ type: 'lowpass', cutoff: 20000, resonance: 1 });
-            engine.updateCompressor({ ...preset.globalFxParams.compressor, threshold: 0, makeup: 0 }); // Effectively disable compressor
-            engine.updateMasterVolume(1.0);
 
+            // Master Filter and Compressor are always bypassed for stems.
+            engine.updateMasterFilter({ type: 'lowpass', cutoff: 20000, resonance: 1 });
+            engine.updateCompressor({ ...preset.globalFxParams.compressor, enabled: false, threshold: 0, makeup: 0 });
+
+            // Apply master volume to stems for level consistency.
+            engine.updateMasterVolume(preset.globalFxParams.masterVolume);
 
             // Mute all other tracks AND their sends
             preset.tracks.forEach(t => {
@@ -451,15 +454,16 @@ async function renderSongAudio(
                 engine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
                 engine.updateDelay(preset.globalFxParams.delay, preset.bpm);
                 engine.updateDrive(preset.globalFxParams.drive);
+                engine.updateCharacter(preset.globalFxParams.character);
             } else {
                 engine.updateReverb({ ...preset.globalFxParams.reverb, mix: 0 }, preset.bpm);
                 engine.updateDelay({ ...preset.globalFxParams.delay, mix: 0 }, preset.bpm);
                 engine.updateDrive({ ...preset.globalFxParams.drive, mix: 0 });
+                engine.updateCharacter({ ...preset.globalFxParams.character, mix: 0 });
             }
-            engine.updateCharacter({ ...preset.globalFxParams.character, mix: 0 });
             engine.updateMasterFilter({ type: 'lowpass', cutoff: 20000, resonance: 1 });
             engine.updateCompressor({ ...preset.globalFxParams.compressor, enabled: false });
-            engine.updateMasterVolume(1.0);
+            engine.updateMasterVolume(preset.globalFxParams.masterVolume);
     
             preset.tracks.forEach(t => {
                 if (t.id !== track.id) {
@@ -519,20 +523,6 @@ async function renderSongAudio(
         return renderStems();
     }
 }
-
-const getInitialParamsForType = (type: TrackType): AllInstrumentParams => {
-    switch (type) {
-        case 'kick': return INITIAL_KICK_PARAMS;
-        case 'hat': return INITIAL_HAT_PARAMS;
-        case 'arcane': return INITIAL_ARCANE_PARAMS;
-        case 'ruin': return INITIAL_RUIN_PARAMS;
-        case 'artifice': return INITIAL_ARTIFICE_PARAMS;
-        case 'shift': return INITIAL_SHIFT_PARAMS;
-        case 'reson': return INITIAL_RESON_PARAMS;
-        case 'alloy': return INITIAL_ALLOY_PARAMS;
-        default: return {};
-    }
-};
 
 // --- ZUSTAND STORE ---
 // Helper for granular subscription updates
@@ -854,7 +844,11 @@ export const useStore = create<AppState & AppActions>()(
                         const track = state.preset.tracks.find(t => t.id === activeTrackId);
                         if (!track) return;
                 
-                        // Immer-compatible deep setter
+                        // If params are empty, populate with defaults before mutating.
+                        if ((!track.params || Object.keys(track.params).length === 0) && track.type !== 'midi') {
+                            track.params = getInitialParamsForType(track.type);
+                        }
+                
                         const setDeepMutate = (obj: any, p: string, v: any) => {
                             const keys = p.split('.');
                             let current = obj;
@@ -867,7 +861,6 @@ export const useStore = create<AppState & AppActions>()(
                             current[keys[keys.length - 1]] = v;
                         };
                 
-                        // Handle P-Lock first if active
                         if (selectedPLockStep && activeTrackId === selectedPLockStep.trackId) {
                             const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
                             const paramKey = `${track.type}Params` as keyof PLocks;
@@ -878,7 +871,6 @@ export const useStore = create<AppState & AppActions>()(
                             // If not a P-Lock, it's a base parameter change.
                             setDeepMutate(track.params, path, value);
                 
-                            // If recording automation, record this base parameter change.
                             if (state.automationRecording?.trackId === activeTrackId) {
                                 state._recordAutomationPoint(state, activeTrackId, `params.${path}`, value);
                             }
@@ -899,86 +891,90 @@ export const useStore = create<AppState & AppActions>()(
                         }
                     });
                 },
+// FIX: Implement the handleMidiMessage function which was previously missing. This function is critical for MIDI mapping to work correctly.
                 handleMidiMessage: (mapping, value, command) => {
-                    if (!mapping || !mapping.target) {
-                        console.warn("Received invalid MIDI mapping.", mapping);
+                    if (get().isSpectator) {
+                        get().triggerViewerModeInteraction();
                         return;
                     }
+
+                    const { setParam, setTrackVolume, setTrackPan, setFxSend, selectTrack, toggleMute, toggleSolo, setMainView } = get();
                     const { target } = mapping;
-                
-                    if (target.type === 'button') {
-                        // For momentary buttons, we must ignore the "release" message to prevent a double-toggle.
-                        // A release is a Note Off (command 8) or a Note On with velocity 0 (command 9, value 0).
-                        // It's also a CC message with a value of 0.
-                        const isNoteOff = command === 8;
-                        const isNoteOnWithZeroVelocity = command === 9 && value === 0;
-                        const isCcRelease = mapping.message.type === 'cc' && value === 0;
-                
-                        if (isNoteOff || isNoteOnWithZeroVelocity || isCcRelease) {
+                    const { path, type, range } = target;
+
+                    // Ignore note off for buttons to avoid double triggering
+                    if (type === 'button' && command === 8) {
+                        return;
+                    }
+
+                    let normalizedValue = value / 127;
+
+                    // Handle transport controls
+                    if (path.startsWith('transport.')) {
+                        const { togglePlay, stop } = usePlaybackStore.getState();
+                        if (path === 'transport.play') togglePlay();
+                        else if (path === 'transport.stop') stop();
+                        else if (path === 'transport.view.pattern') setMainView('pattern');
+                        else if (path === 'transport.view.song') setMainView('song');
+                        return;
+                    }
+
+                    // Handle track mutes/solos/selects
+                    const trackMatch = path.match(/^tracks\.(\d+)\.(mute|solo|select)$/);
+                    if (trackMatch) {
+                        const trackId = parseInt(trackMatch[1], 10);
+                        const action = trackMatch[2];
+                        if (action === 'mute') toggleMute(trackId);
+                        else if (action === 'solo') toggleSolo(trackId);
+                        else if (action === 'select') selectTrack(trackId);
+                        return;
+                    }
+
+                    let finalValue: any = normalizedValue;
+                    if (range) {
+                        finalValue = range.min + (normalizedValue * (range.max - range.min));
+                    }
+
+                    const parts = path.split('.');
+
+                    if (parts[0] === 'tracks') {
+                        const trackId = parseInt(parts[1], 10);
+                        if (get().isViewerMode && trackId >= 3) {
+                            get().triggerViewerModeInteraction();
                             return;
                         }
-                    }
-                
-                    let scaledValue: number;
-                
-                    if (target.type === 'knob' && target.range) {
-                        const val = target.range.min + (value / 127) * (target.range.max - target.range.min);
-                        scaledValue = target.step ? Math.round(val / target.step) * target.step : val;
-                    } else {
-                        scaledValue = value;
-                    }
-                
-                    const pathParts = target.path.split('.');
-                    const [domain, ...rest] = pathParts;
-                    
-                    const { 
-                        setTrackVolume, setTrackPan, setFxSend, setParamForTrack, 
-                        setGlobalFxParam, setBpm, setMasterVolume,
-                        toggleMute, toggleSolo, selectTrack, setMainView,
-                    } = get();
-                    const { togglePlay, stop } = usePlaybackStore.getState();
-                    
-                    switch(domain) {
-                        case 'tracks':
-                            const trackId = parseInt(rest[0], 10);
-                            const param = rest[1];
-                            if (isNaN(trackId)) return;
-                            
-                            if (param === 'volume') setTrackVolume(trackId, scaledValue);
-                            else if (param === 'pan') setTrackPan(trackId, scaledValue);
-                            else if (param === 'fxSends') setFxSend(trackId, rest[2] as keyof FXSends, scaledValue);
-                            else if (param === 'params') setParamForTrack(trackId, rest.slice(2).join('.'), scaledValue);
-                            else if (param === 'mute') toggleMute(trackId);
-                            else if (param === 'solo') toggleSolo(trackId);
-                            else if (param === 'select') selectTrack(trackId);
-                            break;
-                        case 'globalFx':
-                             const fxName = rest[0] as keyof GlobalFXParams;
-                             const fxParam = rest.slice(1).join('.');
-                             if (fxName === 'masterVolume') setMasterVolume(scaledValue);
-                             else setGlobalFxParam(fxName, fxParam, scaledValue);
-                            break;
-                        case 'preset':
-                            if (rest[0] === 'bpm') setBpm(scaledValue);
-                            break;
-                        case 'transport':
-                             const action = rest[1];
-                             if (action === 'play') togglePlay();
-                             else if (action === 'stop') stop();
-                             else if (action === 'pattern') setMainView('pattern');
-                             else if (action === 'song') setMainView('song');
-                             break;
+                        const param = parts[2];
+                        if (param === 'volume') setTrackVolume(trackId, finalValue);
+                        else if (param === 'pan') setTrackPan(trackId, finalValue);
+                        else if (param === 'fxSends') {
+                            const send = parts[3] as keyof FXSends;
+                            setFxSend(trackId, send, finalValue);
+                        } else if (param === 'params') {
+                            const paramPath = parts.slice(3).join('.');
+                            get().setParamForTrack(trackId, paramPath, finalValue);
+                        }
+                    } else if (parts[0] === 'globalFx') {
+                        const fx = parts[1] as keyof GlobalFXParams;
+                        const param = parts[2];
+                        get().setGlobalFxParam(fx, param, finalValue);
+                    } else if (parts[0] === 'preset' && parts[1] === 'bpm') {
+                        get().setBpm(finalValue);
                     }
                 },
                 setMidiOutParam: (key, value) => {
                     if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
                     set(state => {
-                        const { selectedTrackId, selectedPLockStep } = state;
-                        const track = state.preset.tracks.find(t => t.id === selectedTrackId);
+                        const { selectedTrackId, selectedPLockStep, isViewerMode } = state;
+                        const activeTrackId = selectedPLockStep?.trackId ?? selectedTrackId;
+                        if (isViewerMode && activeTrackId >= 3) {
+                            get().triggerViewerModeInteraction();
+                            return;
+                        }
+
+                        const track = state.preset.tracks.find(t => t.id === activeTrackId);
                         if (!track || track.type !== 'midi') return;
-            
-                        if (selectedPLockStep && selectedTrackId === selectedPLockStep.trackId) {
+
+                        if (selectedPLockStep && activeTrackId === selectedPLockStep.trackId) {
                             const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
                             if (!step.pLocks) step.pLocks = {};
                             if (!step.pLocks.midiOutParams) step.pLocks.midiOutParams = {};
@@ -986,197 +982,169 @@ export const useStore = create<AppState & AppActions>()(
                         } else {
                             if (!track.midiOut) track.midiOut = { deviceId: null, channel: 1 };
                             (track.midiOut as any)[key] = value;
+
+                            if (state.automationRecording?.trackId === activeTrackId) {
+                                state._recordAutomationPoint(state, activeTrackId, `midiOut.${key}`, value);
+                            }
                         }
                     });
                 },
-                 setTrackVolume: (trackId, volume) => {
+                setTrackVolume: (trackId, volume) => {
                     if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
                     if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-
-                    let isPLock = false;
+                    
                     set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (!track) return;
-                
                         if (state.selectedPLockStep?.trackId === trackId) {
-                            const { stepIndex } = state.selectedPLockStep;
-                            const step = track.patterns[track.activePatternIndex][stepIndex];
-                            if (!step.pLocks) step.pLocks = {};
-                            step.pLocks.volume = volume;
-                            isPLock = true;
+                            const track = state.preset.tracks.find(t => t.id === trackId);
+                            if (track) {
+                                const step = track.patterns[track.activePatternIndex][state.selectedPLockStep.stepIndex];
+                                if (!step.pLocks) step.pLocks = {};
+                                step.pLocks.volume = volume;
+                            }
                         } else {
-                            track.volume = volume;
+                            const track = state.preset.tracks.find(t => t.id === trackId);
+                            if (track) track.volume = volume;
+                            audioEngine?.updateTrackVolume(trackId, volume);
                             if (state.automationRecording?.trackId === trackId) {
                                 state._recordAutomationPoint(state, trackId, 'volume', volume);
                             }
                         }
                     });
-                    if (!isPLock) {
-                        audioEngine?.updateTrackVolume(trackId, volume);
-                    }
                 },
                 setTrackPan: (trackId, pan) => {
                     if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
                     if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
                     
-                    let isPLock = false;
                     set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (!track) return;
-                        
-                        if (state.selectedPLockStep?.trackId === trackId) {
-                            const { stepIndex } = state.selectedPLockStep;
-                            const step = track.patterns[track.activePatternIndex][stepIndex];
-                            if (!step.pLocks) step.pLocks = {};
-                            step.pLocks.pan = pan;
-                            isPLock = true;
+                         if (state.selectedPLockStep?.trackId === trackId) {
+                            const track = state.preset.tracks.find(t => t.id === trackId);
+                            if (track) {
+                                const step = track.patterns[track.activePatternIndex][state.selectedPLockStep.stepIndex];
+                                if (!step.pLocks) step.pLocks = {};
+                                step.pLocks.pan = pan;
+                            }
                         } else {
-                            track.pan = pan;
-                            if (state.automationRecording?.trackId === trackId) {
+                            const track = state.preset.tracks.find(t => t.id === trackId);
+                            if (track) track.pan = pan;
+                            audioEngine?.updateTrackPan(trackId, pan);
+                             if (state.automationRecording?.trackId === trackId) {
                                 state._recordAutomationPoint(state, trackId, 'pan', pan);
                             }
                         }
                     });
-                    if (!isPLock) {
-                        audioEngine?.updateTrackPan(trackId, pan);
-                    }
                 },
                 setFxSend: (trackId, fx, value) => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-
-                    let isPLock = false;
+                     if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
+                     if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
+                    
                     set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (!track) return;
-                        
                         if (state.selectedPLockStep?.trackId === trackId) {
-                            const { stepIndex } = state.selectedPLockStep;
-                            const step = track.patterns[track.activePatternIndex][stepIndex];
-                            if (!step.pLocks) step.pLocks = {};
-                            if (!step.pLocks.fxSends) step.pLocks.fxSends = {};
-                            step.pLocks.fxSends[fx] = value;
-                            isPLock = true;
+                            const track = state.preset.tracks.find(t => t.id === trackId);
+                            if (track) {
+                                const step = track.patterns[track.activePatternIndex][state.selectedPLockStep.stepIndex];
+                                if (!step.pLocks) step.pLocks = {};
+                                if (!step.pLocks.fxSends) step.pLocks.fxSends = {};
+                                step.pLocks.fxSends[fx] = value;
+                            }
                         } else {
-                            track.fxSends[fx] = value;
+                            const track = state.preset.tracks.find(t => t.id === trackId);
+                            if (track) track.fxSends[fx] = value;
+                            audioEngine?.updateTrackFxSend(trackId, fx, value);
                             if (state.automationRecording?.trackId === trackId) {
                                 state._recordAutomationPoint(state, trackId, `fxSends.${fx}`, value);
                             }
                         }
                     });
-                     if (!isPLock) {
-                        audioEngine?.updateTrackFxSend(trackId, fx, value);
-                    }
                 },
                 setGlobalFxParam: (fx, param, value) => {
                     if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
                     set(state => {
-                        const fxParams = state.preset.globalFxParams[fx] as any;
-                        if (fxParams) {
-                            // Handle nested params like masterFilter.cutoff
-                            if (param.includes('.')) {
-                                const [p1, p2] = param.split('.');
-                                if (fxParams[p1]) {
-                                    fxParams[p1][p2] = value;
-                                }
-                            } else {
-                                fxParams[param] = value;
-                            }
-                        }
+                        const paramPath = `${fx}.${param}`;
+                        setDeep(state.preset.globalFxParams, paramPath, value);
+
+                        const currentBpm = state.preset.bpm;
+                        if (fx === 'reverb') audioEngine?.updateReverb(state.preset.globalFxParams.reverb, currentBpm);
+                        if (fx === 'delay') audioEngine?.updateDelay(state.preset.globalFxParams.delay, currentBpm);
+                        if (fx === 'drive') audioEngine?.updateDrive(state.preset.globalFxParams.drive);
+                        if (fx === 'character') audioEngine?.updateCharacter(state.preset.globalFxParams.character);
+                        if (fx === 'masterFilter') audioEngine?.updateMasterFilter(state.preset.globalFxParams.masterFilter);
+                        if (fx === 'compressor') audioEngine?.updateCompressor(state.preset.globalFxParams.compressor);
                     });
-                    const { preset } = get();
-                    switch (fx) {
-                        case 'reverb': audioEngine?.updateReverb(preset.globalFxParams.reverb, preset.bpm); break;
-                        case 'delay': audioEngine?.updateDelay(preset.globalFxParams.delay, preset.bpm); break;
-                        case 'drive': audioEngine?.updateDrive(preset.globalFxParams.drive); break;
-                        case 'character': audioEngine?.updateCharacter(preset.globalFxParams.character); break;
-                        case 'masterFilter': audioEngine?.updateMasterFilter(preset.globalFxParams.masterFilter); break;
-                        case 'compressor': audioEngine?.updateCompressor(preset.globalFxParams.compressor); break;
-                    }
                 },
                 setMasterVolume: (volume) => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
+                     if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
                     set(state => { state.preset.globalFxParams.masterVolume = volume; });
                     audioEngine?.updateMasterVolume(volume);
                 },
-                
                 setStepProperty: (trackId, stepIndex, prop, value) => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    
                     set(state => {
                         const track = state.preset.tracks.find(t => t.id === trackId);
                         if (track) {
                             const step = track.patterns[track.activePatternIndex][stepIndex];
-                            
-                            if (prop === 'active') {
-                                step.active = value;
-                                if (value === true) { // Activating
-                                    if (step.notes.length === 0) {
-                                        step.notes = [track.defaultNote];
-                                    }
-                                } else { // De-activating: clear p-locks and related properties
-                                    step.pLocks = null;
-                                    step.velocity = 1.0;
-                                    step.duration = 1;
-                                    step.notes = [];
-                                }
-                            } else {
+                            if (step) {
                                 (step as any)[prop] = value;
                             }
                         }
                     });
                 },
 
+                // --- AUDIO ACTIONS ---
                 auditionNote: (note, velocity = 0.8) => {
-                    const track = get().preset.tracks.find(t => t.id === get().selectedTrackId);
+                    const { selectedTrackId, isViewerMode } = get();
+                     if (isViewerMode && selectedTrackId >= 3) {
+                        get().triggerViewerModeInteraction();
+                        return;
+                    }
+
+                    const track = get().preset.tracks.find(t => t.id === selectedTrackId);
                     if (track && audioEngine) {
                         audioEngine.playNote(track, note, velocity);
                     }
                 },
                 
+                // --- PATTERN & GENERATIVE ACTIONS ---
                 setPatternLength: (trackId, length) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => { 
+                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
+                    set(state => {
                         const track = state.preset.tracks.find(t => t.id === trackId);
-                        if(track) track.patternLength = length; 
-                    })
+                        if (track) track.patternLength = length;
+                    });
                 },
                 selectPattern: (trackId, patternIndex, currentPlayheadTime) => {
                     if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-
-                    const { isArrangementRecording } = get();
-                    const oldPatternIndex = get().preset.tracks.find(t => t.id === trackId)?.activePatternIndex;
-
-                    if (isArrangementRecording && patternIndex !== oldPatternIndex) {
-                        // Finalize any existing recording clip for this track
+                    const { isArrangementRecording, mainView } = get();
+                    if (isArrangementRecording && mainView === 'song') {
+                        const secondsPerBeat = 60 / get().preset.bpm;
+                        const timeInBeats = currentPlayheadTime / secondsPerBeat;
+                        
                         set(state => {
-                            const existingRecordingClip = state.recordingClips.find(c => c.trackId === trackId);
-                            if (existingRecordingClip) {
-                                existingRecordingClip.duration = currentPlayheadTime - existingRecordingClip.startTime;
-                                if (existingRecordingClip.duration > 0.1) {
-                                    state.preset.arrangementClips?.push(existingRecordingClip);
-                                }
-                                state.recordingClips = state.recordingClips.filter(c => c.trackId !== trackId);
+                            const track = state.preset.tracks.find(t => t.id === trackId);
+                            if (!track) return;
+                    
+                            // Find the currently recording clip for this track and end it
+                            const existingClipIndex = state.recordingClips.findIndex(c => c.trackId === trackId);
+                            if (existingClipIndex !== -1) {
+                                const existingClip = state.recordingClips[existingClipIndex];
+                                existingClip.duration = timeInBeats - existingClip.startTime;
+                                // Move it to the main arrangement
+                                if (!state.preset.arrangementClips) state.preset.arrangementClips = [];
+                                if(existingClip.duration > 0) state.preset.arrangementClips.push(existingClip);
+                                state.recordingClips.splice(existingClipIndex, 1);
                             }
-                        });
-    
-                        // Start a new recording clip
-                        set(state => {
-                            const newRecordingClip: ArrangementClip = {
-                                id: `rec_${trackId}_${Date.now()}`,
-                                trackId,
-                                startTime: currentPlayheadTime,
-                                duration: 0, 
+                    
+                            // Start a new recording clip
+                            const newClip: ArrangementClip = {
+                                id: `rec-${trackId}-${Date.now()}`,
+                                trackId: trackId,
+                                startTime: timeInBeats,
+                                duration: Infinity, // Will be calculated on next change or stop
                                 type: 'pattern',
                                 patternIndex: patternIndex,
                             };
-                            state.recordingClips.push(newRecordingClip);
+                            state.recordingClips.push(newClip);
                         });
                     }
-    
-                    // Always update the active pattern index
+
                     set(state => {
                         const track = state.preset.tracks.find(t => t.id === trackId);
                         if (track) track.activePatternIndex = patternIndex;
@@ -1189,463 +1157,322 @@ export const useStore = create<AppState & AppActions>()(
                         automationRecording: { trackId, mode },
                         overwriteTouchedParams: new Set(),
                     });
-                    get().addNotification({ type: 'info', message: `Armado para grabar automatización (${mode}).` });
+                    get().addNotification({ type: 'info', message: `Recording automation for Track ${trackId + 1} (${mode})` });
                 },
                 stopAutomationRecording: () => {
+                    if (get().automationRecording) {
+                        get().addNotification({ type: 'success', message: `Stopped automation recording.` });
+                    }
                     set({ automationRecording: null });
-                    get().addNotification({ type: 'info', message: `Grabación de automatización detenida.` });
                 },
-
                 clearAutomation: (trackId) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => { 
+                    set(state => {
                         const track = state.preset.tracks.find(t => t.id === trackId);
-                        if(track) track.automation = {}; 
+                        if (track) track.automation = {};
                     });
-                     get().addNotification({ type: 'info', message: 'Automation cleared for track.' });
+                    get().addNotification({ type: 'info', message: `Cleared automation for Track ${trackId + 1}` });
                 },
-                
-                // --- RANDOMIZATION & CLEARING ---
                 randomizeTrackPattern: (trackId) => {
                     if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
                     set(state => {
                         const track = state.preset.tracks.find(t => t.id === trackId);
                         if (track) {
-                            const { pattern, length } = createTechnoPattern(track.type, Math.random() < 0.5);
+                            const isHypnotic = Math.random() > 0.5;
+                            const { pattern, length } = createTechnoPattern(track.type, isHypnotic);
                             track.patterns[track.activePatternIndex] = pattern;
                             track.patternLength = length;
                         }
                     });
                 },
-                randomizeInstrument: (trackId) => {
-                    if (get().isViewerMode && trackId > 2) { 
-                        get().triggerViewerModeInteraction(); 
-                        return; 
-                    }
-                     set(state => {
+                 randomizeInstrument: (trackId) => {
+                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
+                    set(state => {
                         const track = state.preset.tracks.find(t => t.id === trackId);
                         if (!track) return;
-                        let newParams: Partial<AllInstrumentParams>;
+
+                        let randomizedParams: Partial<AllInstrumentParams> = {};
                         switch (track.type) {
-                            case 'kick': newParams = randomizeKickParams(); break;
-                            case 'hat': newParams = randomizeHatParams(); break;
-                            case 'arcane': newParams = randomizeArcaneParams(); break;
-                            case 'ruin': newParams = randomizeRuinParams(); break;
-                            case 'artifice': newParams = randomizeArtificeParams(); break;
-                            case 'shift': newParams = randomizeShiftParams(); break;
-                            case 'reson': newParams = randomizeResonParams(); break;
-                            case 'alloy': newParams = randomizeAlloyParams(); break;
-                            default: newParams = {};
+                            case 'kick': randomizedParams = randomizeKickParams(); break;
+                            case 'hat': randomizedParams = randomizeHatParams(); break;
+                            case 'arcane': randomizedParams = randomizeArcaneParams(); break;
+                            case 'ruin': randomizedParams = randomizeRuinParams(); break;
+                            case 'artifice': randomizedParams = randomizeArtificeParams(); break;
+                            case 'shift': randomizedParams = randomizeShiftParams(); break;
+                            case 'reson': randomizedParams = randomizeResonParams(); break;
+                            case 'alloy': randomizedParams = randomizeAlloyParams(); break;
                         }
-                        track.params = deepMerge(track.params, newParams);
+                        track.params = deepMerge(track.params, randomizedParams);
                         track.loadedInstrumentPresetName = null;
                     });
                 },
-                 randomizeAllPatternsForTrack: (trackId) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                randomizeAllPatternsForTrack: (trackId) => {
+                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
                     set(state => {
                         const track = state.preset.tracks.find(t => t.id === trackId);
                         if (track) {
-                            let maxLength = 0;
-                            track.patterns = track.patterns.map(() => {
-                                const { pattern, length } = createTechnoPattern(track.type, Math.random() < 0.5);
-                                if (length > maxLength) {
-                                    maxLength = length;
-                                }
-                                return pattern;
-                            });
-                            track.patternLength = maxLength > 0 ? maxLength : 16;
+                            track.patterns = track.patterns.map(() => createTechnoPattern(track.type, Math.random() > 0.5).pattern);
                         }
                     });
                 },
                 randomizeAllPatternsForAllTracks: () => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    if (window.confirm('This will randomize all patterns on all tracks, creating a new polyrhythmic techno groove. Instrument sounds will not be changed. This cannot be undone. Continue?')) {
-                        set(state => {
-                            state.preset.tracks.forEach(track => {
-                                if (track.type !== 'midi') {
-                                    let maxLength = 0;
-                                    track.patterns = track.patterns.map(() => {
-                                        const isHypnotic = Math.random() < 0.7;
-                                        const { pattern, length } = createTechnoPattern(track.type, isHypnotic);
-                                        if (length > maxLength) {
-                                            maxLength = length;
-                                        }
-                                        return pattern;
-                                    });
-                                    track.patternLength = maxLength > 0 ? maxLength : 16;
-                                }
-                            });
+                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    set(state => {
+                        state.preset.tracks.forEach(track => {
+                            if (track.type !== 'midi') {
+                                track.patterns = track.patterns.map(() => createTechnoPattern(track.type, Math.random() > 0.5).pattern);
+                            }
                         });
-                        get().addNotification({ type: 'info', message: 'The machine is now possessed by a new groove.' });
-                    }
+                    });
                 },
                 clearTrackPattern: (trackId) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
                     set(state => {
                         const track = state.preset.tracks.find(t => t.id === trackId);
                         if (track) {
-                            const emptyPattern = Array(64).fill(null).map(() => ({ active: false, pLocks: null, notes: [], velocity: 1.0, duration: 1, condition: { type: 'always'} }));
-                            track.patterns[track.activePatternIndex] = emptyPattern;
+                            track.patterns[track.activePatternIndex] = createEmptyPatterns()[0];
                         }
                     });
                 },
                 clearAllPatterns: () => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    if (window.confirm('Are you sure you want to clear all patterns, automation, and arrangement clips? This cannot be undone.')) {
-                        set(state => {
-                            state.preset.tracks.forEach(track => {
-                                track.patterns = createEmptyPatterns();
-                                track.automation = {};
-                            });
-                            if (state.preset.arrangementClips) {
-                                state.preset.arrangementClips = [];
-                            }
+                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    set(state => {
+                        state.preset.tracks.forEach(track => {
+                            track.patterns = createEmptyPatterns();
+                            track.activePatternIndex = 0;
                         });
-                        get().addNotification({ type: 'info', message: 'All patterns, automation, and arrangement clips cleared.' });
-                    }
+                    });
                 },
-
-                // --- EUCLIDEAN ---
                 startEuclideanMode: (trackId) => {
                     if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    const track = get().preset.tracks.find(t => t.id === trackId);
-                    if (track) {
-                        set({
-                            euclideanMode: {
+                    set(state => {
+                        const track = state.preset.tracks.find(t => t.id === trackId);
+                        if (track) {
+                            const currentPattern = track.patterns[track.activePatternIndex];
+                            state.euclideanMode = {
                                 trackId,
                                 pulses: 8,
-                                steps: 16,
+                                steps: track.patternLength,
                                 rotation: 0,
-                                originalPattern: deepClone(track.patterns[track.activePatternIndex]),
-                                originalLength: track.patternLength
-                            }
-                        });
-                    }
+                                originalPattern: deepClone(currentPattern),
+                                originalLength: track.patternLength,
+                            };
+                            // Apply initial euclidean pattern
+                            const euclidean = generateEuclideanPattern(8, track.patternLength);
+                            const newPattern = createEmptyPatterns()[0];
+                            euclidean.forEach((active, i) => { if (active) newPattern[i].active = true; });
+                            track.patterns[track.activePatternIndex] = newPattern;
+                        }
+                    });
                 },
                 updateEuclidean: (params) => {
-                    if (!get().euclideanMode) return;
-                    const { trackId } = get().euclideanMode!;
                     set(state => {
                         if (state.euclideanMode) {
-                            // Merge new params
-                            Object.assign(state.euclideanMode, params);
-                            // Ensure pulses is not greater than steps
-                            if (state.euclideanMode.pulses > state.euclideanMode.steps) {
-                                state.euclideanMode.pulses = state.euclideanMode.steps;
+                            state.euclideanMode = { ...state.euclideanMode, ...params };
+                            const track = state.preset.tracks.find(t => t.id === state.euclideanMode!.trackId);
+                            if (track) {
+                                const { pulses, steps, rotation } = state.euclideanMode;
+                                const euclidean = generateEuclideanPattern(pulses, steps);
+                                const rotated = [...euclidean.slice(rotation), ...euclidean.slice(0, rotation)];
+                                const newPattern = createEmptyPatterns()[0];
+                                rotated.forEach((active, i) => { if (active) newPattern[i].active = true; });
+                                track.patterns[track.activePatternIndex] = newPattern;
+                                track.patternLength = steps;
                             }
-                            if (state.euclideanMode.rotation >= state.euclideanMode.steps) {
-                                state.euclideanMode.rotation = state.euclideanMode.steps - 1;
-                            }
-                            if (state.euclideanMode.rotation < 0) {
-                                state.euclideanMode.rotation = 0;
-                            }
-
-                            const { pulses, steps, rotation } = state.euclideanMode;
-
-                            const basePattern = generateEuclideanPattern(pulses, steps);
-
-                            // Apply rotation
-                            const rotatedPattern = [...basePattern];
-                            if (rotation > 0 && rotatedPattern.length > 0) {
-                                for (let r = 0; r < rotation; r++) {
-                                    rotatedPattern.unshift(rotatedPattern.pop()!);
-                                }
-                            }
-                            
-                            const track = state.preset.tracks.find(t => t.id === trackId);
-                            if (!track) return;
-
-                            const emptyPattern = Array(64).fill(null).map<StepState>(() => ({ active: false, pLocks: null, notes: [], velocity: 1, duration: 1, condition: { type: 'always' } }));
-                            for (let i = 0; i < steps; i++) {
-                                if (rotatedPattern[i]) {
-                                    emptyPattern[i] = { active: true, pLocks: null, notes: [track.defaultNote], velocity: 0.8, duration: 1, condition: { type: 'always' } };
-                                }
-                            }
-                            track.patterns[track.activePatternIndex] = emptyPattern;
-                            track.patternLength = steps;
                         }
                     });
                 },
                 applyEuclidean: () => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set({ euclideanMode: null })
+                    set({ euclideanMode: null });
+                    get().addNotification({ type: 'success', message: 'Euclidean pattern applied.' });
                 },
                 cancelEuclidean: () => {
-                    const { euclideanMode } = get();
-                    if (euclideanMode) {
-                        set(state => {
-                            const track = state.preset.tracks.find(t => t.id === euclideanMode.trackId);
-                            if(track) {
-                                track.patterns[track.activePatternIndex] = euclideanMode.originalPattern;
-                                track.patternLength = euclideanMode.originalLength;
+                    set(state => {
+                        if (state.euclideanMode) {
+                            const track = state.preset.tracks.find(t => t.id === state.euclideanMode!.trackId);
+                            if (track) {
+                                track.patterns[track.activePatternIndex] = state.euclideanMode.originalPattern;
+                                track.patternLength = state.euclideanMode.originalLength;
                             }
                             state.euclideanMode = null;
-                        });
-                    }
-                },
-                toggleQuickStart: (show) => {
-                    if (show === false) {
-                        localStorage.setItem('fm8r-quickstart-finished', 'true');
-                        const fullscreenPromptDismissed = localStorage.getItem('fm8r-fullscreen-prompt-dismissed');
-                        if (!fullscreenPromptDismissed) {
-                            set({ showFullscreenPrompt: true });
                         }
-                    }
-                    set(state => ({ showQuickStart: show === undefined ? !state.showQuickStart : show }));
-                },
-                togglePresetManager: (open) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => ({ isPresetManagerOpen: open === undefined ? !state.isPresetManagerOpen : open }));
-                },
-                toggleExportModal: (open) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => ({ isExportModalOpen: open === undefined ? !state.isExportModalOpen : open }));
-                },
-                toggleStore: (open) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => ({ isStoreOpen: open === undefined ? !state.isStoreOpen : open }));
-                },
-                toggleSettingsModal: (open) => {
-                    set(state => ({ isSettingsModalOpen: open === undefined ? !state.isSettingsModalOpen : open }));
-                },
-                toggleManual: (open) => {
-                    set(state => ({ isManualOpen: open === undefined ? !state.isManualOpen : open }));
-                },
-                setMidiOutputs: (outputs) => {
-                    set({ midiOutputs: outputs.map(o => ({ id: o.id, name: o.name })) });
-                },
-                setAppearanceTheme: (theme) => {
-                    set({ appearanceTheme: theme });
-                },
-                setAccentTheme: (theme) => {
-                    set({ accentTheme: theme });
-                },
-                setUiPerformanceMode: (mode) => {
-                    set({ uiPerformanceMode: mode });
-                },
-                setMidiSyncSource: (source) => {
-                    set({ midiSyncSource: source });
-                },
-                setMidiSyncOutput: (output) => {
-                    set({ midiSyncOutput: output });
-                    // Immediately send MIDI clock if we become master
-                    if (output !== 'none' && audioEngine) {
-                        const midiOut = audioEngine.getMidiOutputs().find(o => o.id === output);
-                        midiOut?.send([0xF8]);
-                    }
+                    });
                 },
                 
-                // --- PRESET MANAGEMENT ---
+                // --- MODALS & UI STATE ---
+                toggleQuickStart: (show) => set({ showQuickStart: show === undefined ? !get().showQuickStart : show }),
+                togglePresetManager: (open) => set({ isPresetManagerOpen: open === undefined ? !get().isPresetManagerOpen : open }),
+                toggleExportModal: (open) => set({ isExportModalOpen: open === undefined ? !get().isExportModalOpen : open }),
+                toggleStore: (open) => set({ isStoreOpen: open === undefined ? !get().isStoreOpen : open }),
+                toggleSettingsModal: (open) => set({ isSettingsModalOpen: open === undefined ? !get().isSettingsModalOpen : open }),
+                toggleManual: (open) => set({ isManualOpen: open === undefined ? !get().isManualOpen : open }),
+                setMidiOutputs: (outputs) => set({ midiOutputs: outputs.map(o => ({ id: o.id, name: o.name }))}),
+                setAppearanceTheme: (theme) => set({ appearanceTheme: theme }),
+                setAccentTheme: (theme) => set({ accentTheme: theme }),
+                setUiPerformanceMode: (mode) => set({ uiPerformanceMode: mode }),
+                
+                // --- PRESETS & DATA MANAGEMENT ---
                 loadPreset: (preset) => {
-                    usePlaybackStore.getState().stop();
-
-                    const presetToLoad = deepClone(preset);
-                    
-                    // FIX: Filter out any null or undefined tracks that might exist in old/corrupted project files.
-                    if (presetToLoad.tracks) {
-                        presetToLoad.tracks = presetToLoad.tracks.filter(t => t);
-                    }
-
-                    const baseProject = deepClone(newProjectPreset);
-                    const mergedPreset = deepMerge(baseProject, presetToLoad);
-                    mergedPreset.name = presetToLoad.name; // Preserve original name
-
-                    set({ preset: mergedPreset, isSpectator: false });
-                    get().reinitializeAudio();
-                    get().addNotification({ type: 'success', message: `Loaded project: ${preset.name}` });
-                },
-                savePreset: (name) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const { preset, presets } = get();
-                    if (presets.some(p => p.name === name)) {
-                        get().addNotification({ type: 'error', message: `Project name "${name}" already exists.` });
+                    if (get().isSpectator) {
+                        get().addNotification({ type: 'info', message: "Can't change projects in Spectator mode." });
                         return;
                     }
+
                     const newPreset = deepClone(preset);
-                    newPreset.name = name;
-                    set({ presets: [...presets, newPreset], preset: newPreset });
-                     get().addNotification({ type: 'success', message: `Project saved as: ${name}` });
-                },
-                 overwritePreset: (name) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const { preset, presets } = get();
-                    const newPreset = deepClone(preset);
-                    newPreset.name = name;
-                    set({
-                        presets: presets.map(p => p.name === name ? newPreset : p),
-                        preset: newPreset
-                    });
-                     get().addNotification({ type: 'success', message: `Project "${name}" overwritten.` });
-                },
-                saveCurrentSessionAsNewProject: () => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const newName = window.prompt("Enter a name for the new project:");
-                    if (!newName || !newName.trim()) {
-                        return; // User cancelled or entered empty name
+                    set({ preset: newPreset, selectedTrackId: 0, sequencerPage: 0, mutedTracks: [], soloedTrackId: null, selectedPLockStep: null, isPLockModeActive: false });
+                    
+                    if (audioEngine) {
+                        audioEngine.createTrackChannels(newPreset.tracks);
+                        audioEngine.updateBpm(newPreset.bpm);
+                        audioEngine.updateReverb(newPreset.globalFxParams.reverb, newPreset.bpm);
+                        audioEngine.updateDelay(newPreset.globalFxParams.delay, newPreset.bpm);
+                        audioEngine.updateDrive(newPreset.globalFxParams.drive);
+                        audioEngine.updateCharacter(newPreset.globalFxParams.character);
+                        audioEngine.updateMasterFilter(newPreset.globalFxParams.masterFilter);
+                        audioEngine.updateCompressor(newPreset.globalFxParams.compressor);
+                        audioEngine.updateMasterVolume(newPreset.globalFxParams.masterVolume);
                     }
-                    set(state => {
-                        const trimmedName = newName.trim();
-                        if (state.presets.some(p => p.name === trimmedName)) {
-                            state.addNotification({ type: 'error', message: `Project name "${trimmedName}" already exists.` });
-                            return;
-                        }
-
-                        const newProject = deepClone(state.preset);
-                        newProject.name = trimmedName;
-                        
-                        // Also update the current live session to reflect the save
-                        state.preset.name = trimmedName;
-
-                        state.presets.push(newProject);
-                        state.addNotification({ type: 'success', message: `Saved current session as "${trimmedName}".` });
-                    });
                 },
-                saveCurrentProjectAndExtractPresets: () => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                savePreset: (name) => {
+                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    const existing = get().presets.find(p => p.name.toLowerCase() === name.toLowerCase());
+                    if (existing) {
+                        get().addNotification({ type: 'error', message: `A project named "${name}" already exists.` });
+                        return;
+                    }
+                    const newPreset = deepClone(get().preset);
+                    newPreset.name = name;
+                    set(state => ({ presets: [...state.presets, newPreset], preset: newPreset }));
+                    get().addNotification({ type: 'success', message: `Project "${name}" saved.` });
+                },
+                overwritePreset: (name) => {
+                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    const presetToSave = deepClone(get().preset);
+                    presetToSave.name = name;
                     set(state => {
-                        const currentProject = state.preset;
-                        const projectName = currentProject.name;
-                
-                        if (projectName === 'Blank Project' || projectName === 'New Project') {
-                            state.addNotification({ type: 'error', message: "Cannot overwrite this project. Please 'Save As' with a unique name first." });
-                            return;
+                        const index = state.presets.findIndex(p => p.name === name);
+                        if (index !== -1) {
+                            state.presets[index] = presetToSave;
                         }
-                
-                        // 1. Iterate through tracks and create instrument presets
-                        currentProject.tracks.forEach(track => {
-                            if (track.type === 'midi') return; // Skip MIDI tracks
-                
-                            // 2. Generate a preset name, ensuring it's unique
-                            let presetName = `${projectName} - ${track.name}`;
-                            let counter = 2;
-                            while (state.instrumentPresets.some(p => p.name === presetName && p.type === track.type)) {
-                                presetName = `${projectName} - ${track.name} ${counter++}`;
-                            }
-                
-                            // 3. Create and add the new instrument preset
-                            const newInstrumentPreset: InstrumentPreset = {
-                                name: presetName,
-                                type: track.type,
-                                params: deepClone(track.params),
-                            };
-                            state.instrumentPresets.push(newInstrumentPreset);
-                
-                            // 4. Update the track in the current project to link to the new preset
-                            track.loadedInstrumentPresetName = presetName;
-                        });
-                
-                        // 5. Overwrite the project in the main presets array
-                        const projectIndex = state.presets.findIndex(p => p.name === projectName);
-                        if (projectIndex !== -1) {
-                            state.presets[projectIndex] = deepClone(currentProject);
-                        } else {
-                            // This case shouldn't be hit due to the initial check, but as a fallback:
-                            state.presets.push(deepClone(currentProject));
-                        }
-                
-                        state.addNotification({ type: 'success', message: `Project '${projectName}' saved and all instrument presets extracted.` });
                     });
+                     get().addNotification({ type: 'success', message: `Project "${name}" updated.` });
+                },
+                 saveCurrentProjectAndExtractPresets: () => {
+                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    const { preset, overwritePreset, saveInstrumentPreset } = get();
+                    overwritePreset(preset.name);
+
+                    preset.tracks.forEach(track => {
+                        if (track.type !== 'midi') {
+                            const presetName = `${preset.name} - ${track.name}`;
+                            saveInstrumentPreset(track.type, presetName);
+                        }
+                    });
+                     get().addNotification({ type: 'success', message: `Project saved and ${preset.tracks.length} instrument presets extracted.` });
                 },
                 deletePreset: (name) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    if (get().preset.name === name) {
-                        get().addNotification({ type: 'error', message: "Cannot delete the currently active project." });
+                    if (name === "Blank Project" || name === "New Project") {
+                         get().addNotification({ type: 'error', message: `Cannot delete factory default project.` });
                         return;
                     }
-                    set({ presets: get().presets.filter(p => p.name !== name) });
-                    get().addNotification({ type: 'info', message: `Project "${name}" deleted.` });
+                    set(state => ({ presets: state.presets.filter(p => p.name !== name) }));
+                     get().addNotification({ type: 'info', message: `Project "${name}" deleted.` });
                 },
                 renamePreset: (oldName, newName) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    if (get().presets.some(p => p.name === newName)) {
-                         get().addNotification({ type: 'error', message: `Project name "${newName}" already exists.` });
-                         return;
+                    if (oldName === "Blank Project" || oldName === "New Project") {
+                         get().addNotification({ type: 'error', message: `Cannot rename factory default project.` });
+                        return;
                     }
                     set(state => {
-                        const presetToRename = state.presets.find(p => p.name === oldName);
-                        if (presetToRename) presetToRename.name = newName;
+                        const preset = state.presets.find(p => p.name === oldName);
+                        if (preset) preset.name = newName;
                         if (state.preset.name === oldName) state.preset.name = newName;
                     });
                 },
-                exportProject: () => {
+                 saveCurrentSessionAsNewProject: () => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                     const presetJson = JSON.stringify(get().preset, null, 2);
-                     const blob = new Blob([presetJson], { type: 'application/json' });
-                     downloadBlob(blob, `${get().preset.name}.fm8r-project`);
+                    const newProject = deepClone(get().preset);
+                    const now = new Date();
+                    const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+                    newProject.name = `Session ${timestamp}`;
+                    set(state => ({
+                        presets: [...state.presets, newProject],
+                        preset: newProject, // Load the newly saved project
+                    }));
+                    get().addNotification({ type: 'success', message: `Saved current session as "${newProject.name}".` });
                 },
-                importProject: (file) => {
+
+                // --- IMPORT / EXPORT ---
+                exportProject: () => {
+                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    const presetToExport = get().preset;
+                    const blob = new Blob([JSON.stringify(presetToExport, null, 2)], { type: 'application/json' });
+                    downloadBlob(blob, `${presetToExport.name}.fm8r-project`);
+                },
+                importProject: async (file) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        try {
-                            const newPreset = JSON.parse(e.target!.result as string) as Preset;
-                            if (get().presets.some(p => p.name === newPreset.name)) {
-                                // Handle conflict
-                                get().addNotification({ type: 'error', message: `Project "${newPreset.name}" already exists.` });
-                            } else {
-                                set({ presets: [...get().presets, newPreset] });
-                                get().addNotification({ type: 'success', message: `Imported project: ${newPreset.name}` });
-                            }
-                        } catch (err) {
-                            get().addNotification({ type: 'error', message: 'Invalid project file.' });
+                    const text = await file.text();
+                    try {
+                        const newPreset = JSON.parse(text) as Preset;
+                        if (typeof newPreset.name !== 'string' || !Array.isArray(newPreset.tracks)) {
+                            throw new Error('Invalid project file format.');
                         }
-                    };
-                    reader.readAsText(file);
+                        const existing = get().presets.find(p => p.name === newPreset.name);
+                        if (existing) {
+                            set({ importConflict: { newPreset } });
+                            get().addNotification({ type: 'info', message: `Project "${newPreset.name}" already exists. Overwrite?` });
+                        } else {
+                            set(state => ({ presets: [...state.presets, newPreset] }));
+                            get().addNotification({ type: 'success', message: `Project "${newPreset.name}" imported.` });
+                        }
+                    } catch (e) {
+                        console.error("Import failed:", e);
+                        get().addNotification({ type: 'error', message: 'Failed to import project file.' });
+                    }
                 },
                 saveAllProjects: () => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const allProjectsJson = JSON.stringify(get().presets, null, 2);
-                    const blob = new Blob([allProjectsJson], { type: 'application/json' });
+                    const projects = get().presets;
+                    const blob = new Blob([JSON.stringify(projects, null, 2)], { type: 'application/json' });
                     downloadBlob(blob, 'fm8r_all_projects_backup.json');
                 },
                 exportAudio: async (options) => {
-                    if (get().isViewerMode) {
-                        get().triggerViewerModeInteraction();
-                        return Promise.reject(new Error('Feature unavailable in trial mode.'));
+                    if (get().isViewerMode) { 
+                        get().triggerViewerModeInteraction(); 
+                        return Promise.reject("Export is disabled in viewer mode.");
                     }
-                    
-                    set({ isExporting: true, exportProgress: 'Starting export...' });
-                    const { preset, mutedTracks, soloedTrackId, arrangementLoop } = get();
-                    const sampleRate = 44100;
-                    
+                    set({ isExporting: true });
                     try {
-                        let result: { blob: Blob; name: string; };
-                        const onProgress = (message: string) => set({ exportProgress: message });
-                        
+                        const { preset, mutedTracks, soloedTrackId, arrangementLoop } = get();
+                        const sampleRate = 44100;
+                
+                        let result: { blob: Blob, name: string };
+                        const finalOptions = { ...options, includeMasterFx: options.type !== 'stems-dry' };
+                
                         if (options.source === 'pattern') {
-                            result = await renderPatternAudio(preset, sampleRate, mutedTracks, soloedTrackId, options, onProgress);
-                        } else {
-                            let startTime = 0;
-                            let endTime = 0;
+                            result = await renderPatternAudio(preset, sampleRate, mutedTracks, soloedTrackId, finalOptions, (msg) => set({ exportProgress: msg }));
+                        } else { // song modes
                             const secondsPerBeat = 60 / preset.bpm;
-
+                            let startTime = 0;
+                            let endTime = Math.max(...(preset.arrangementClips || []).map(c => c.startTime + c.duration)) * secondsPerBeat;
+                            
                             if (options.source === 'song-loop' && arrangementLoop) {
                                 startTime = arrangementLoop.start * secondsPerBeat;
                                 endTime = arrangementLoop.end * secondsPerBeat;
-                            } else { // 'song-full'
-                                const clips = preset.arrangementClips || [];
-                                if (clips.length > 0) {
-                                    const maxEndTimeInBeats = Math.max(...clips.map(c => c.startTime + c.duration));
-                                    endTime = maxEndTimeInBeats * secondsPerBeat;
-                                }
-                            }
-                            
-                            if (endTime <= startTime) {
-                                throw new Error("Invalid song duration for export.");
                             }
                 
-                            result = await renderSongAudio(preset, sampleRate, mutedTracks, soloedTrackId, { ...options, startTime, endTime }, onProgress);
+                            result = await renderSongAudio(preset, sampleRate, mutedTracks, soloedTrackId, { ...finalOptions, startTime, endTime }, (msg) => set({ exportProgress: msg }));
                         }
-                        
+                
                         downloadBlob(result.blob, result.name);
-                        
-                        get().addNotification({ type: 'success', message: `Successfully exported ${result.name}` });
+                        get().addNotification({ type: 'success', message: 'Audio export finished!' });
                         return result;
                     } catch (e) {
-                        console.error("Export failed:", e);
-                        get().addNotification({ type: 'error', message: `Export failed: ${e instanceof Error ? e.message : 'Unknown error'}` });
-                        return Promise.reject(e);
+                        console.error("Export failed", e);
+                        get().addNotification({ type: 'error', message: `Audio export failed: ${(e as Error).message}` });
+                        throw e;
                     } finally {
                         set({ isExporting: false, exportProgress: '' });
                     }
@@ -1653,75 +1480,60 @@ export const useStore = create<AppState & AppActions>()(
                 installPack: (pack) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
                     set(state => {
-                        if (!state.installedPacks.includes(pack.id)) {
-                            state.installedPacks.push(pack.id);
-                            // Add projects from pack to presets, avoiding name collisions
-                            pack.projects.forEach(project => {
-                                let newName = project.name;
-                                let counter = 2;
-                                while (state.presets.some(p => p.name === newName)) {
-                                    newName = `${project.name} ${counter++}`;
-                                }
-                                const newProject = deepClone(project);
-                                newProject.name = newName;
-                                state.presets.push(newProject);
-                            });
-                            // Add instrument presets, avoiding collisions
-                            pack.instruments.forEach(instrument => {
-                                let newName = instrument.name;
-                                let counter = 2;
-                                while (state.instrumentPresets.some(p => p.name === newName && p.type === instrument.type)) {
-                                    newName = `${instrument.name} ${counter++}`;
-                                }
-                                const newInstrument = deepClone(instrument);
-                                newInstrument.name = newName;
-                                state.instrumentPresets.push(newInstrument);
-                            });
-                            state.addNotification({ type: 'success', message: `Expansion Pack "${pack.name}" installed!` });
-                        }
+                        if (state.installedPacks.includes(pack.id)) return;
+
+                        // Add pack projects, avoiding duplicates
+                        const existingProjectNames = new Set(state.presets.map(p => p.name));
+                        const newProjects = pack.projects.filter(p => !existingProjectNames.has(p.name));
+                        state.presets.push(...deepClone(newProjects));
+
+                        // Add pack instruments, avoiding duplicates
+                        const existingInstrumentKeys = new Set(state.instrumentPresets.map(p => `${p.type}::${p.name}`));
+                        const newInstruments = pack.instruments.filter(p => !existingInstrumentKeys.has(`${p.type}::${p.name}`));
+                        state.instrumentPresets.push(...deepClone(newInstruments));
+
+                        state.installedPacks.push(pack.id);
                     });
+                    get().addNotification({ type: 'success', message: `Expansion Pack "${pack.name}" installed.` });
                 },
-                fetchCustomPacks: async (url) => {
+                 fetchCustomPacks: async (url) => {
                     if (!url) {
                         set({ customPacks: [] });
                         return;
                     }
                     try {
                         const response = await fetch(url);
-                        if (!response.ok) {
-                            throw new Error(`HTTP error! status: ${response.status}`);
-                        }
-                        const customPacks = await response.json();
-                        // Basic validation
-                        if (Array.isArray(customPacks)) {
-                            set({ customPacks });
-                            get().addNotification({ type: 'success', message: 'Custom expansion packs loaded.' });
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        const manifest = await response.json();
+                        if (Array.isArray(manifest.packs)) {
+                            // Basic validation
+                            const validPacks = manifest.packs.filter((p: any) => p.id && p.name && p.artist && Array.isArray(p.projects) && Array.isArray(p.instruments));
+                            set({ customPacks: validPacks });
+                            get().addNotification({ type: 'success', message: `Loaded ${validPacks.length} custom pack(s).` });
                         } else {
-                            throw new Error('Invalid manifest format.');
+                            throw new Error("Invalid manifest format");
                         }
-                    } catch (error) {
-                        console.error("Failed to fetch custom packs:", error);
-                        get().addNotification({ type: 'error', message: `Failed to load custom content: ${error instanceof Error ? error.message : 'Unknown error'}` });
+                    } catch (e) {
+                        console.error("Failed to fetch custom packs:", e);
                         set({ customPacks: [] });
+                        get().addNotification({ type: 'error', message: 'Could not load custom content from URL.' });
                     }
                 },
                 setCustomStoreUrl: (url) => {
                     set({ customStoreUrl: url });
                 },
+
+                // --- ARRANGEMENT ---
                 moveClip: (clipId, newStartTime) => {
                     set(state => {
                         const clip = state.preset.arrangementClips?.find(c => c.id === clipId);
-                        if (clip) {
-                            clip.startTime = newStartTime;
-                        }
+                        if (clip) clip.startTime = newStartTime;
                     });
                 },
                 resizeClip: (clipId, newDuration) => {
                     set(state => {
                         const clip = state.preset.arrangementClips?.find(c => c.id === clipId);
-                        if (clip) {
-                            clip.duration = newDuration;
-                        }
+                        if (clip) clip.duration = newDuration;
                     });
                 },
                 deleteClip: (clipId) => {
@@ -1732,193 +1544,179 @@ export const useStore = create<AppState & AppActions>()(
                     });
                 },
                 duplicateClip: (clip, newStartTime) => {
-                    set(state => {
-                        const newClip: ArrangementClip = {
+                     set(state => {
+                        const newClip = {
                             ...deepClone(clip),
-                            id: `clip_${Date.now()}_${Math.random()}`,
-                            startTime: newStartTime,
+                            id: `clip-${Date.now()}`,
+                            startTime: newStartTime
                         };
-                        state.preset.arrangementClips?.push(newClip);
+                        if (!state.preset.arrangementClips) state.preset.arrangementClips = [];
+                        state.preset.arrangementClips.push(newClip);
                     });
                 },
                 addPatternClip: (trackId, startTime, patternIndex) => {
-                    set(state => {
+                     if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
+                     set(state => {
                         const track = state.preset.tracks.find(t => t.id === trackId);
                         if (!track) return;
-                
-                        const durationInBeats = track.patternLength / 4;
-                
+                        const duration = track.patternLength / 4; // length in beats
                         const newClip: ArrangementClip = {
-                            id: `clip_${Date.now()}_${Math.random()}`,
+                            id: `clip-${Date.now()}`,
                             trackId,
                             startTime,
-                            duration: durationInBeats,
+                            duration,
                             type: 'pattern',
                             patternIndex,
                         };
-                        if (!state.preset.arrangementClips) {
-                            state.preset.arrangementClips = [];
-                        }
+                         if (!state.preset.arrangementClips) state.preset.arrangementClips = [];
                         state.preset.arrangementClips.push(newClip);
                     });
                 },
                 toggleArrangementRecording: (currentPlayheadTime) => {
-                    set(state => {
-                        if (!state.isArrangementRecording) {
-                            // Start recording
-                            state.isArrangementRecording = true;
-                            state.recordingClips = [];
-                            state.preset.tracks.forEach(track => {
-                                const newClip: ArrangementClip = {
-                                    id: `rec_${track.id}_${Date.now()}`,
-                                    trackId: track.id,
-                                    startTime: currentPlayheadTime,
-                                    duration: 0,
-                                    type: 'pattern',
-                                    patternIndex: track.activePatternIndex,
-                                };
-                                state.recordingClips.push(newClip);
-                            });
-                            state.addNotification({ type: 'info', message: 'Arrangement recording started.' });
-                        } else {
-                            // Stop recording - handled by finalizeRecording
-                            get().finalizeRecording(currentPlayheadTime);
-                        }
-                    });
+                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    const isRec = get().isArrangementRecording;
+                    if (isRec) {
+                        get().finalizeRecording(currentPlayheadTime);
+                    }
+                    set({ isArrangementRecording: !isRec });
                 },
                 finalizeRecording: (currentPlayheadTime) => {
+                    const secondsPerBeat = 60 / get().preset.bpm;
+                    const timeInBeats = currentPlayheadTime / secondsPerBeat;
                     set(state => {
-                        if (!state.isArrangementRecording) return;
-                
                         state.recordingClips.forEach(clip => {
-                            clip.duration = currentPlayheadTime - clip.startTime;
-                            if (clip.duration > 0.1) { // Only add non-zero clips
-                                state.preset.arrangementClips?.push(clip);
-                            }
+                            clip.duration = timeInBeats - clip.startTime;
+                            if (!state.preset.arrangementClips) state.preset.arrangementClips = [];
+                            if (clip.duration > 0) state.preset.arrangementClips.push(clip);
                         });
-                
-                        state.isArrangementRecording = false;
                         state.recordingClips = [];
-                        state.addNotification({ type: 'success', message: 'Arrangement recording finished.' });
                     });
                 },
                 initializeArrangementLoop: (defaultDurationInBeats) => {
-                    if (!get().arrangementLoop) {
+                    const clips = get().preset.arrangementClips || [];
+                    if (get().arrangementLoop) return; // Don't overwrite if it's already set
+
+                    if (clips.length > 0) {
+                        const minStart = Math.min(...clips.map(c => c.startTime));
+                        const maxEnd = Math.max(...clips.map(c => c.startTime + c.duration));
+                        set({ arrangementLoop: { start: minStart, end: maxEnd } });
+                    } else {
                         set({ arrangementLoop: { start: 0, end: defaultDurationInBeats } });
                     }
                 },
-                setArrangementLoop: (start, end) => {
-                    set(state => {
-                        if (state.arrangementLoop) {
-                            state.arrangementLoop.start = start;
-                            state.arrangementLoop.end = end;
-                        }
-                    });
-                },
+                setArrangementLoop: (start, end) => set({ arrangementLoop: { start, end } }),
+                
+                // --- NOTIFICATIONS ---
                 removeNotification: (id) => {
-                    set(state => {
-                        state.notifications = state.notifications.filter(n => n.id !== id);
-                    });
+                    set(state => ({
+                        notifications: state.notifications.filter(n => n.id !== id)
+                    }));
                 },
                 addNotification: (notification) => {
-                    set(state => {
-                        const newId = Date.now() + Math.random();
-                        state.notifications.push({ ...notification, id: newId });
-                        if (state.notifications.length > 5) {
-                            state.notifications.shift();
-                        }
-                    });
+                    const id = Date.now() + Math.random();
+                    set(state => ({
+                        notifications: [...state.notifications, { id, ...notification }]
+                    }));
                 },
+
+                // --- INSTRUMENT PRESETS ---
                 saveInstrumentPreset: (trackType, name) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const { preset, selectedTrackId, instrumentPresets, addNotification } = get();
+                    const { preset, selectedTrackId } = get();
                     const track = preset.tracks.find(t => t.id === selectedTrackId);
                     if (!track || track.type !== trackType) return;
-                
-                    if (instrumentPresets.some(p => p.name === name && p.type === trackType)) {
-                        addNotification({ type: 'error', message: `Preset "${name}" already exists for this instrument type.` });
-                        return;
-                    }
-                
+
                     const newPreset: InstrumentPreset = {
                         name,
                         type: trackType,
                         params: deepClone(track.params),
                     };
                     set(state => {
-                        state.instrumentPresets.push(newPreset);
-                        const currentTrack = state.preset.tracks.find(t => t.id === selectedTrackId);
-                        if (currentTrack) {
-                            currentTrack.loadedInstrumentPresetName = name;
+                        const existingIndex = state.instrumentPresets.findIndex(p => p.type === trackType && p.name === name);
+                        if (existingIndex !== -1) {
+                            state.instrumentPresets[existingIndex] = newPreset;
+                        } else {
+                            state.instrumentPresets.push(newPreset);
                         }
+                        const currentTrack = state.preset.tracks.find(t => t.id === selectedTrackId);
+                        if(currentTrack) currentTrack.loadedInstrumentPresetName = name;
                     });
-                    addNotification({ type: 'success', message: `Saved instrument preset: ${name}` });
+                    get().addNotification({ type: 'success', message: `Instrument preset "${name}" saved.` });
                 },
                 loadInstrumentPreset: (preset) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const { selectedTrackId, addNotification } = get();
+                    const { selectedTrackId, isViewerMode } = get();
+                    if (isViewerMode && selectedTrackId >= 3) { get().triggerViewerModeInteraction(); return; }
+
                     set(state => {
                         const track = state.preset.tracks.find(t => t.id === selectedTrackId);
                         if (track && track.type === preset.type) {
-                            // Backward compatibility: merge loaded preset onto a default structure
-                            const defaultParams = getInitialParamsForType(track.type);
-                            track.params = deepMerge(deepClone(defaultParams), deepClone(preset.params));
+                            track.params = deepClone(preset.params);
                             track.loadedInstrumentPresetName = preset.name;
                         }
                     });
-                    addNotification({ type: 'success', message: `Loaded preset: ${preset.name}` });
                 },
                 deleteInstrumentPreset: (trackType, name) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        state.instrumentPresets = state.instrumentPresets.filter(p => !(p.type === trackType && p.name === name));
-                    });
-                    get().addNotification({ type: 'info', message: `Deleted preset: ${name}` });
+                    set(state => ({
+                        instrumentPresets: state.instrumentPresets.filter(p => !(p.type === trackType && p.name === name))
+                    }));
                 },
-                importInstrumentPresets: (file) => {
+                 importInstrumentPresets: async (file) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        try {
-                            const newPresets = JSON.parse(e.target!.result as string) as InstrumentPreset[];
-                            if (!Array.isArray(newPresets)) throw new Error("Invalid format");
-                
-                            set(state => {
-                                let importedCount = 0;
-                                newPresets.forEach((p: InstrumentPreset) => {
-                                    if (!state.instrumentPresets.some(existing => existing.name === p.name && existing.type === p.type)) {
-                                        state.instrumentPresets.push(p);
-                                        importedCount++;
-                                    }
-                                });
-                                state.addNotification({ type: 'success', message: `Imported ${importedCount} new instrument presets.` });
-                            });
-                        } catch (err) {
-                            get().addNotification({ type: 'error', message: 'Invalid instrument preset file.' });
+                    try {
+                        const text = await file.text();
+                        const data = JSON.parse(text);
+                        let presetsToImport: InstrumentPreset[];
+
+                        if (Array.isArray(data)) {
+                            // It's an array of presets
+                            presetsToImport = data;
+                        } else if (typeof data === 'object' && data.type && data.name && data.params) {
+                            // It's a single preset object
+                            presetsToImport = [data];
+                        } else {
+                            throw new Error('Invalid instrument preset file format.');
                         }
-                    };
-                    reader.readAsText(file);
+
+                        // Validate presets
+                        presetsToImport = presetsToImport.filter(p => p.type && p.name && p.params);
+
+                        if (presetsToImport.length === 0) {
+                            throw new Error('No valid instrument presets found in file.');
+                        }
+
+                        set(state => {
+                            const existingKeys = new Set(state.instrumentPresets.map(p => `${p.type}::${p.name}`));
+                            const newPresets = presetsToImport.filter(p => !existingKeys.has(`${p.type}::${p.name}`));
+                            state.instrumentPresets.push(...newPresets);
+                        });
+                        get().addNotification({ type: 'success', message: `Imported ${presetsToImport.length} instrument preset(s).` });
+                    } catch (e) {
+                        console.error("Instrument preset import failed:", e);
+                        get().addNotification({ type: 'error', message: 'Failed to import instrument presets.' });
+                    }
                 },
-                exportInstrumentPresets: (trackType: TrackType) => {
+                exportInstrumentPresets: (trackType) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
                     const presetsToExport = get().instrumentPresets.filter(p => p.type === trackType);
-                    const json = JSON.stringify(presetsToExport, null, 2);
-                    const blob = new Blob([json], { type: 'application/json' });
-                    downloadBlob(blob, `fm8r_${trackType}_presets.json`);
+                    if (presetsToExport.length === 0) {
+                        get().addNotification({ type: 'info', message: `No presets to export for type "${trackType}".` });
+                        return;
+                    }
+                    const blob = new Blob([JSON.stringify(presetsToExport, null, 2)], { type: 'application/json' });
+                    downloadBlob(blob, `fm8r_instrument_presets_${trackType}.json`);
                 },
-
-                // --- COPY/PASTE ---
+                
+                // --- COPY / PASTE ---
                 copyStep: (trackId, stepIndex) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
                     const track = get().preset.tracks.find(t => t.id === trackId);
                     if (track) {
                         const step = track.patterns[track.activePatternIndex][stepIndex];
                         set({ copiedStep: { trackId, stepIndex, step: deepClone(step) } });
-                        get().addNotification({ type: 'info', message: `Copied step ${stepIndex + 1}` });
+                        get().addNotification({ type: 'info', message: `Copied step ${stepIndex + 1} from ${track.name}.` });
                     }
                 },
                 pasteStep: (trackId, stepIndex) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
                     const { copiedStep } = get();
                     if (copiedStep) {
                         set(state => {
@@ -1927,51 +1725,64 @@ export const useStore = create<AppState & AppActions>()(
                                 track.patterns[track.activePatternIndex][stepIndex] = deepClone(copiedStep.step);
                             }
                         });
-                        get().addNotification({ type: 'success', message: `Pasted to step ${stepIndex + 1}` });
                     }
                 },
                 copyPattern: () => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const { selectedTrackId, preset, addNotification } = get();
+                    const { preset, selectedTrackId } = get();
                     const track = preset.tracks.find(t => t.id === selectedTrackId);
-                    if (!track) return;
-
-                    const patternToCopy = track.patterns[track.activePatternIndex];
-                    set({ copiedPattern: { trackId: selectedTrackId, pattern: deepClone(patternToCopy) } });
-                    addNotification({ type: 'info', message: `Copied pattern ${track.activePatternIndex + 1} from ${track.name}` });
+                    if (track) {
+                        const pattern = track.patterns[track.activePatternIndex];
+                        set({ copiedPattern: { trackId: selectedTrackId, pattern: deepClone(pattern) } });
+                        get().addNotification({ type: 'info', message: `Copied pattern from ${track.name}.` });
+                    }
                 },
                 pastePattern: () => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const { selectedTrackId, copiedPattern, addNotification } = get();
-                    if (!copiedPattern) {
-                        addNotification({ type: 'error', message: 'No pattern in clipboard to paste.' });
-                        return;
+                    const { copiedPattern, preset, selectedTrackId } = get();
+                    if (copiedPattern) {
+                        set(state => {
+                            const track = state.preset.tracks.find(t => t.id === selectedTrackId);
+                            if (track) {
+                                track.patterns[track.activePatternIndex] = deepClone(copiedPattern.pattern);
+                            }
+                        });
                     }
-
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === selectedTrackId);
-                        if (track) {
-                            track.patterns[track.activePatternIndex] = deepClone(copiedPattern.pattern);
-                            addNotification({ type: 'success', message: `Pasted into pattern ${track.activePatternIndex + 1} of ${track.name}` });
-                        }
-                    });
                 },
-                
-                // --- MISC UI & SYSTEM ---
-                toggleCenterView: () => set(state => ({ centerView: state.centerView === 'mixer' ? 'pianoRoll' : 'mixer' })),
-                setMainView: (view) => set({ mainView: view }),
+
+                // --- MISC ---
+                toggleCenterView: () => {
+                    const track = get().preset.tracks.find(t => t.id === get().selectedTrackId);
+                    if (track && !['kick', 'hat', 'midi'].includes(track.type)) {
+                        set(state => ({ centerView: state.centerView === 'mixer' ? 'pianoRoll' : 'mixer' }))
+                    } else {
+                        set({ centerView: 'mixer' });
+                    }
+                },
+                setMainView: (view) => {
+                    if (get().isViewerMode && view === 'song') { get().triggerViewerModeInteraction(); return; }
+                    set({ mainView: view })
+                },
                 setSequencerPage: (page) => set({ sequencerPage: page }),
                 setAudioOutputDevices: (devices) => set({ audioOutputDevices: devices }),
                 selectAudioOutput: (deviceId) => {
-                    set({ selectedAudioOutputId: deviceId });
-                    get().reinitializeAudio();
+                    if (get().selectedAudioOutputId !== deviceId) {
+                        set({ selectedAudioOutputId: deviceId });
+                        get().reinitializeAudio();
+                    }
                 },
                 setLatency: (latency) => {
-                    set({ latencySetting: latency });
-                    get().reinitializeAudio();
+                    if (get().latencySetting !== latency) {
+                        set({ latencySetting: latency });
+                        get().reinitializeAudio();
+                    }
+                },
+                setMidiSyncSource: (source) => {
+                    set({ midiSyncSource: source });
+                },
+                setMidiSyncOutput: (output) => {
+                    set({ midiSyncOutput: output });
                 },
                 exportFullBackup: (midiMappings) => {
-                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
                     const backup: FullBackup = {
                         version: '1.2',
                         presets: get().presets,
@@ -1983,267 +1794,146 @@ export const useStore = create<AppState & AppActions>()(
                         midiSyncSource: get().midiSyncSource,
                         midiSyncOutput: get().midiSyncOutput,
                     };
-                    const json = JSON.stringify(backup, null, 2);
-                    const blob = new Blob([json], { type: 'application/json' });
-                    downloadBlob(blob, 'fm8r_full_backup.json');
+                    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+                    downloadBlob(blob, `fm8r_full_backup_${new Date().toISOString().split('T')[0]}.json`);
                 },
-                importFullBackup: (file) => {
+                importFullBackup: async (file) => {
                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    return new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = (e) => {
-                            try {
-                                const backup = JSON.parse(e.target!.result as string) as FullBackup;
-                                set({
-                                    presets: backup.presets,
-                                    instrumentPresets: backup.instrumentPresets,
-                                    installedPacks: backup.installedPacks || [],
-                                    appearanceTheme: backup.appearanceTheme || 'studio-dark',
-                                    accentTheme: backup.accentTheme || 'studio-amber',
-                                    midiSyncSource: backup.midiSyncSource || 'internal',
-                                    midiSyncOutput: backup.midiSyncOutput || 'none',
-                                });
-                                get().addNotification({ type: 'success', message: 'Full backup restored successfully.' });
-                                resolve(backup.midiMappings);
-                            } catch (err) {
-                                get().addNotification({ type: 'error', message: 'Invalid backup file.' });
-                                reject(err);
-                            }
-                        };
-                        reader.onerror = reject;
-                        reader.readAsText(file);
-                    });
+                    try {
+                        const text = await file.text();
+                        const backup = JSON.parse(text) as FullBackup;
+                        if (backup.version !== '1.2' && backup.version !== '1.1') {
+                            throw new Error('Incompatible backup version.');
+                        }
+                        set({
+                            presets: backup.presets,
+                            instrumentPresets: backup.instrumentPresets,
+                            installedPacks: backup.installedPacks || [],
+                            appearanceTheme: backup.appearanceTheme as AppearanceThemeKey,
+                            accentTheme: backup.accentTheme as AccentThemeKey,
+                            midiSyncSource: backup.midiSyncSource || 'internal',
+                            midiSyncOutput: backup.midiSyncOutput || 'none',
+                        });
+                        get().loadPreset(backup.presets[0] || deepClone(LICENSED_DEFAULT_PROJECT));
+                        get().addNotification({ type: 'success', message: 'Full backup restored successfully.' });
+                        return backup.midiMappings;
+
+                    } catch(e) {
+                         console.error("Backup import failed:", e);
+                        get().addNotification({ type: 'error', message: 'Failed to import backup file.' });
+                    }
                 },
-                setLicenseKey: (key, isSilent = false) => {
-                    const OWNER_KEY = 'FM8R-OWNER-KEY-2024';
-                    const VALIDATION_SECRET = 'ANOTHER_GROOVEBOX_SECRET_SAUCE';
-
-                    if (key === OWNER_KEY) {
+                 setLicenseKey: (key, isSilent = false) => {
+                    const isValid = key.startsWith('FM8R-') && key.length > 10;
+                
+                    if (isValid) {
                         localStorage.setItem('fm8r_license_key', key);
-                        set({ licenseKey: key, isViewerMode: false, isLicenseModalOpen: false });
-                        if (!isSilent) get().addNotification({ type: 'success', message: 'Full version unlocked! Enjoy.' });
-                        return;
-                    }
-
-                    const parts = key.toUpperCase().split('-');
-                    if (parts.length !== 5 || parts[0] !== 'FM8R') {
-                        if (!isSilent) get().addNotification({ type: 'error', message: 'Invalid license key format.' });
-                        return;
-                    }
-
-                    const [prefix, p1, p2, p3, signature] = parts;
-                    const data = `${p1}${p2}${p3}`;
-                    
-                    const stringToHash = data + VALIDATION_SECRET;
-                    
-                    let hash = 0;
-                    for (let i = 0; i < stringToHash.length; i++) {
-                        const char = stringToHash.charCodeAt(i);
-                        hash = ((hash << 5) - hash) + char;
-                        hash |= 0; // Convert to 32bit integer
-                    }
-                    
-                    const expectedSignature = Math.abs(hash).toString(16).toUpperCase().slice(0, 4).padStart(4, '0');
-
-                    if (signature === expectedSignature) {
-                        localStorage.setItem('fm8r_license_key', key);
-                        set({ licenseKey: key, isViewerMode: false, isLicenseModalOpen: false });
-                        if (!isSilent) get().addNotification({ type: 'success', message: 'Full version unlocked! Enjoy.' });
+                        set(state => {
+                            if (state.isViewerMode) {
+                                state.isViewerMode = false;
+                                // If the user was on the demo project, switch them to the licensed default project.
+                                // The main preset list is not modified, so both "Blank Project" and "New Project" remain available.
+                                if (state.preset.name === DEMO_DEFAULT_PROJECT.name) {
+                                    state.preset = deepClone(LICENSED_DEFAULT_PROJECT);
+                                }
+                                
+                                if (!isSilent) state.addNotification({type: 'success', message: 'Full version unlocked!', duration: 5000});
+                                setTimeout(() => get().reinitializeAudio(), 100);
+                            }
+                            state.licenseKey = key;
+                            state.isLicenseModalOpen = false;
+                        });
                     } else {
-                        if (!isSilent) get().addNotification({ type: 'error', message: 'Invalid license key.' });
+                        localStorage.removeItem('fm8r_license_key');
+                        set({ licenseKey: null });
+                        if (!isSilent) get().addNotification({type: 'error', message: 'Invalid license key.'});
                     }
                 },
                 clearLicenseKey: () => {
                      localStorage.removeItem('fm8r_license_key');
-                     set({ licenseKey: null, isViewerMode: true });
-                     get().addNotification({ type: 'info', message: 'License removed.' });
+                     set({
+                         isViewerMode: true,
+                         licenseKey: null,
+                         preset: deepClone(DEMO_DEFAULT_PROJECT),
+                     });
+                     get().addNotification({type: 'info', message: 'License cleared. Restarting in trial mode.'});
+                     setTimeout(() => window.location.reload(), 1000);
                 },
-                toggleLicenseModal: (open) => {
-                    set(state => ({ isLicenseModalOpen: open === undefined ? !state.isLicenseModalOpen : open }));
-                },
+                toggleLicenseModal: (open) => set({ isLicenseModalOpen: open === undefined ? !get().isLicenseModalOpen : open }),
                 triggerViewerModeInteraction: () => {
                     const { lastNotificationTime, addNotification, toggleLicenseModal } = get();
                     const now = Date.now();
-                    // Throttle notification to avoid spam
-                    if (now - lastNotificationTime > 3000) {
-                        addNotification({ type: 'info', message: 'This feature requires the full version.' });
-                        toggleLicenseModal(true);
+                    if (now - lastNotificationTime > 3000) { // Throttle notifications
+                        addNotification({ type: 'info', message: 'This feature requires the full version.', duration: 3000 });
                         set({ lastNotificationTime: now });
+                        setTimeout(() => toggleLicenseModal(true), 300);
                     }
                 },
-                toggleShareJamModal: (open) => {
-                    if (get().isViewerMode) {
-                        get().triggerViewerModeInteraction();
-                        return;
-                    }
-                    set(state => {
-                        state.isShareJamOpen = open === undefined ? !state.isShareJamOpen : open
-                    });
-                },
-                generateShareableLink: async () => {
+                 toggleShareJamModal: (open) => set({ isShareJamOpen: open === undefined ? !get().isShareJamOpen : open }),
+                 generateShareableLink: async () => {
                     await loadJSZip();
-                    const { preset } = get();
-                
-                    // Create a stripped-down version of the preset for sharing
-                    const presetToShare = deepClone(preset);
-                    // For example, we could remove automation data to save space if needed
-                    // presetToShare.tracks.forEach(t => t.automation = {});
-                
                     const zip = new JSZip();
+                    // Store a minimal version of the preset
+                    const presetToShare = deepClone(get().preset);
+                    presetToShare.tracks.forEach(t => {
+                        // Clear patterns except the active one to save space
+                        const activePattern = t.patterns[t.activePatternIndex];
+                        t.patterns = [activePattern];
+                        t.activePatternIndex = 0;
+                    });
+
                     zip.file("p.json", JSON.stringify(presetToShare));
-                
-                    const blob = await zip.generateAsync({
-                        type: "blob",
-                        compression: "DEFLATE",
-                        compressionOptions: { level: 9 }
-                    });
-                
-                    return new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                            const base64data = reader.result as string;
-                            const base64 = base64data.split(',')[1];
-                            const urlSafeBase64 = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-                            const url = `${window.location.origin}${window.location.pathname}#jam=${urlSafeBase64}`;
-                            resolve(url);
-                        };
-                        reader.onerror = reject;
-                        reader.readAsDataURL(blob);
-                    });
-                },
-                toggleFullscreenPrompt: (show) => {
-                    set(state => ({ showFullscreenPrompt: show === undefined ? !state.showFullscreenPrompt : show }));
-                },
-                addMidiCcLock: (cc = 74, value = 64) => {
+                    const content = await zip.generateAsync({type:"base64"});
+                    const toUrlSafeBase64 = (s: string) => s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+                    const urlSafeContent = toUrlSafeBase64(content);
+                    
+                    const url = new URL(window.location.href);
+                    url.search = ''; // Clear existing search params
+                    url.hash = `jam=${urlSafeContent}`;
+                    return url.toString();
+                 },
+                toggleFullscreenPrompt: (show) => set({ showFullscreenPrompt: show === undefined ? !get().showFullscreenPrompt : show }),
+                addMidiCcLock: (cc = 0, value = 127) => {
                     set(state => {
                         if (state.selectedPLockStep) {
-                            const { trackId, stepIndex } = state.selectedPLockStep;
-                            const track = state.preset.tracks.find(t => t.id === trackId);
+                            const track = state.preset.tracks.find(t => t.id === state.selectedPLockStep!.trackId);
                             if (track && track.type === 'midi') {
-                                const step = track.patterns[track.activePatternIndex][stepIndex];
+                                const step = track.patterns[track.activePatternIndex][state.selectedPLockStep.stepIndex];
                                 if (!step.pLocks) step.pLocks = {};
                                 if (!step.pLocks.ccLocks) step.pLocks.ccLocks = [];
-                                const newLock = { id: `cc_${Date.now()}`, cc, value };
-                                step.pLocks.ccLocks.push(newLock);
+                                step.pLocks.ccLocks.push({ id: `cc-${Date.now()}-${Math.random()}`, cc, value });
                             }
                         }
                     });
                 },
                 updateMidiCcLock: (id, cc, value) => {
                     set(state => {
-                         if (state.selectedPLockStep) {
-                            const { trackId, stepIndex } = state.selectedPLockStep;
-                            const track = state.preset.tracks.find(t => t.id === trackId);
-                            if (track && track.type === 'midi') {
-                                const step = track.patterns[track.activePatternIndex][stepIndex];
+                        if (state.selectedPLockStep) {
+                            const track = state.preset.tracks.find(t => t.id === state.selectedPLockStep!.trackId);
+                            if (track) {
+                                const step = track.patterns[track.activePatternIndex][state.selectedPLockStep.stepIndex];
                                 const lock = step.pLocks?.ccLocks?.find(l => l.id === id);
                                 if (lock) {
-                                    if (cc !== undefined) lock.cc = Math.max(0, Math.min(127, cc));
-                                    if (value !== undefined) lock.value = Math.max(0, Math.min(127, value));
+                                    if (cc !== undefined) lock.cc = cc;
+                                    if (value !== undefined) lock.value = value;
                                 }
                             }
                         }
                     });
                 },
                 removeMidiCcLock: (id) => {
-                     set(state => {
-                         if (state.selectedPLockStep) {
-                            const { trackId, stepIndex } = state.selectedPLockStep;
-                            const track = state.preset.tracks.find(t => t.id === trackId);
-                            if (track && track.type === 'midi' && track.patterns[track.activePatternIndex][stepIndex].pLocks?.ccLocks) {
-                                const step = track.patterns[track.activePatternIndex][stepIndex];
-                                step.pLocks!.ccLocks = step.pLocks!.ccLocks!.filter(l => l.id !== id);
+                    set(state => {
+                        if (state.selectedPLockStep) {
+                            const track = state.preset.tracks.find(t => t.id === state.selectedPLockStep!.trackId);
+                            if (track) {
+                                const step = track.patterns[track.activePatternIndex][state.selectedPLockStep!.stepIndex];
+                                if (step.pLocks?.ccLocks) {
+                                    step.pLocks.ccLocks = step.pLocks.ccLocks.filter(lock => lock.id !== id);
+                                }
                             }
                         }
                     });
                 },
-            })
-        )
+        }))
     )
-);
-
-// --- Global state persistance ---
-useStore.subscribe(
-    (state) => ({
-        presets: state.presets,
-        instrumentPresets: state.instrumentPresets,
-        installedPacks: state.installedPacks,
-        appearanceTheme: state.appearanceTheme,
-        accentTheme: state.accentTheme,
-        customStoreUrl: state.customStoreUrl,
-        midiSyncSource: state.midiSyncSource,
-        midiSyncOutput: state.midiSyncOutput,
-        uiPerformanceMode: state.uiPerformanceMode,
-    }),
-    (currentState) => {
-        try {
-            localStorage.setItem('fm8r-state', JSON.stringify(currentState));
-        } catch (error) {
-            console.error("Error saving state to localStorage:", error);
-        }
-    },
-    { fireImmediately: true }
-);
-
-// --- Audio engine reaction to state changes (PERFORMANCE OPTIMIZED) ---
-useStore.subscribe(
-    (state) => state.preset,
-    (preset, prevPreset) => {
-        if (audioEngine) {
-            // BPM is special because it affects synced FX
-            if (preset.bpm !== prevPreset.bpm) {
-                audioEngine.updateBpm(preset.bpm);
-                if (preset.globalFxParams.reverb.preDelaySync) {
-                    audioEngine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
-                }
-                if (preset.globalFxParams.delay.timeSync) {
-                    audioEngine.updateDelay(preset.globalFxParams.delay, preset.bpm);
-                }
-            }
-
-            // Global FX (checked individually for performance)
-            if (!shallow(preset.globalFxParams.reverb, prevPreset.globalFxParams.reverb)) {
-                audioEngine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
-            }
-            if (!shallow(preset.globalFxParams.delay, prevPreset.globalFxParams.delay)) {
-                audioEngine.updateDelay(preset.globalFxParams.delay, preset.bpm);
-            }
-            if (!shallow(preset.globalFxParams.drive, prevPreset.globalFxParams.drive)) {
-                audioEngine.updateDrive(preset.globalFxParams.drive);
-            }
-            if (!shallow(preset.globalFxParams.character, prevPreset.globalFxParams.character)) {
-                audioEngine.updateCharacter(preset.globalFxParams.character);
-            }
-            if (!shallow(preset.globalFxParams.masterFilter, prevPreset.globalFxParams.masterFilter)) {
-                audioEngine.updateMasterFilter(preset.globalFxParams.masterFilter);
-            }
-            if (!shallow(preset.globalFxParams.compressor, prevPreset.globalFxParams.compressor)) {
-                audioEngine.updateCompressor(preset.globalFxParams.compressor);
-            }
-            if (preset.globalFxParams.masterVolume !== prevPreset.globalFxParams.masterVolume) {
-                audioEngine.updateMasterVolume(preset.globalFxParams.masterVolume);
-            }
-
-            // Tracks (checked individually for performance)
-            preset.tracks.forEach((track, index) => {
-                const prevTrack = prevPreset.tracks[index];
-                if (!prevTrack) return; 
-
-                if (track.volume !== prevTrack.volume) {
-                    audioEngine.updateTrackVolume(track.id, track.volume);
-                }
-                if (track.pan !== prevTrack.pan) {
-                    audioEngine.updateTrackPan(track.id, track.pan);
-                }
-                if (!shallow(track.fxSends, prevTrack.fxSends)) {
-                    (Object.keys(track.fxSends) as Array<keyof FXSends>).forEach(fx => {
-                        if (track.fxSends[fx] !== prevTrack.fxSends[fx]) {
-                            audioEngine!.updateTrackFxSend(track.id, fx, track.fxSends[fx]);
-                        }
-                    });
-                }
-                // Instrument params are not updated live on playing voices, so no audio engine call is needed here.
-            });
-        }
-    }
 );

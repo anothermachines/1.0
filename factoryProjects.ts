@@ -10,6 +10,7 @@ import {
     INITIAL_SHIFT_PARAMS,
     INITIAL_ARTIFICE_PARAMS,
     INITIAL_RESON_PARAMS,
+    createEmptyPatterns,
 } from './constants';
 
 const createEmptySteps = (length = 64): StepState[] => Array(length).fill(null).map(() => ({ 
@@ -31,11 +32,18 @@ const createPatternFromSequence = (sequence: (number|null)[], note = 'C4', vel =
     return pattern;
 };
 
+// Create a truly blank version for the demo/blank project
+const blankProjectTracks = deepClone(INITIAL_TRACKS).map((track, i) => i < 3 ? track : { ...track, params: {} });
+const kickTrackInBlank = blankProjectTracks.find(track => track.id === 0);
+if (kickTrackInBlank) {
+    kickTrackInBlank.patterns = createEmptyPatterns();
+}
+
 
 export const DEMO_DEFAULT_PROJECT: Preset = {
     name: "Blank Project",
     bpm: 120,
-    tracks: deepClone(INITIAL_TRACKS).map((track, i) => i < 3 ? track : { ...track, params: {} }),
+    tracks: blankProjectTracks,
     globalFxParams: {
         reverb: { decay: 1.5, mix: 0.2, preDelay: 0.01, preDelaySync: false, preDelayDivision: 1, damping: 6000 },
         delay: { time: 0.5, feedback: 0.45, mix: 0.3, timeSync: true, timeDivision: 0.5, tone: 4000 },
