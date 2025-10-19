@@ -99,7 +99,14 @@ export function setDeep(obj: any, path: string, value: any) {
 // --- Parameter & P-Lock Helpers ---
 
 const getDeepValue = (obj: any, path: string): any => {
-    return path.split('.').reduce((acc, part) => acc && acc[part], obj);
+    // This implementation correctly handles paths that might contain numeric 0 or other falsy values as intermediate properties.
+    // The original `acc && acc[part]` would fail because (0 && anything) is 0, incorrectly terminating the path traversal.
+    return path.split('.').reduce((acc, part) => {
+        if (acc === null || acc === undefined) {
+            return undefined;
+        }
+        return acc[part];
+    }, obj);
 };
 
 export const getParamValue = (track: Track, pLocks: PLocks | null, path: string): any => {
