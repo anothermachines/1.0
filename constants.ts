@@ -156,7 +156,7 @@ export const INITIAL_TRACKS: Track[] = [
     type: 'kick',
     params: INITIAL_KICK_PARAMS,
     fxSends: { ...INITIAL_FX_SENDS, reverb: 0.1, drive: 0.2 },
-    volume: 0.225, // -13dB
+    volume: 0.201, // -14dB
     pan: 0,
     patternLength: 16,
     defaultNote: 'C2',
@@ -171,7 +171,7 @@ export const INITIAL_TRACKS: Track[] = [
     type: 'hat',
     params: INITIAL_HAT_PARAMS,
     fxSends: { ...INITIAL_FX_SENDS, reverb: 0.1, delay: 0.3 },
-    volume: 0.281, // -11dB
+    volume: 0.250, // -12dB
     pan: 0,
     patternLength: 16,
     defaultNote: 'C5',
@@ -186,7 +186,7 @@ export const INITIAL_TRACKS: Track[] = [
     type: 'ruin',
     params: INITIAL_RUIN_PARAMS,
     fxSends: { ...INITIAL_FX_SENDS, drive: 0.1, sidechain: 0.8 },
-    volume: 0.197, // -14.1dB
+    volume: 0.176, // -15.1dB
     pan: 0,
     patternLength: 16,
     defaultNote: 'C2',
@@ -201,7 +201,7 @@ export const INITIAL_TRACKS: Track[] = [
     type: 'alloy',
     params: INITIAL_ALLOY_PARAMS,
     fxSends: { ...INITIAL_FX_SENDS, reverb: 0.4, delay: 0.5 },
-    volume: 0.141, // -17dB
+    volume: 0.126, // -18dB
     pan: 0,
     patternLength: 16,
     defaultNote: 'C5',
@@ -216,7 +216,7 @@ export const INITIAL_TRACKS: Track[] = [
     type: 'arcane',
     params: INITIAL_ARCANE_PARAMS,
     fxSends: { ...INITIAL_FX_SENDS, reverb: 0.3, delay: 0.4 },
-    volume: 0.169, // -15.4dB
+    volume: 0.151, // -16.4dB
     pan: 0,
     patternLength: 16,
     defaultNote: 'C3',
@@ -231,7 +231,7 @@ export const INITIAL_TRACKS: Track[] = [
     type: 'shift',
     params: INITIAL_SHIFT_PARAMS,
     fxSends: { ...INITIAL_FX_SENDS, reverb: 0.2, delay: 0.4, drive: 0.3 },
-    volume: 0.157, // -16.1dB
+    volume: 0.140, // -17.1dB
     pan: 0,
     patternLength: 16,
     defaultNote: 'C4',
@@ -246,7 +246,7 @@ export const INITIAL_TRACKS: Track[] = [
     type: 'artifice',
     params: INITIAL_ARTIFICE_PARAMS,
     fxSends: { ...INITIAL_FX_SENDS, reverb: 0.5, delay: 0.5, sidechain: 0.5 },
-    volume: 0.157, // -16.1dB
+    volume: 0.140, // -17.1dB
     pan: 0,
     patternLength: 16,
     defaultNote: 'C4',
