@@ -2,9 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useStore } from '../store/store';
 import { shallow } from 'zustand/shallow';
 import Visualizer from './Visualizer';
-import { usePlaybackStore } from '../store/playbackStore';
 import { AudioEngine } from '../audioEngine';
-import { downloadBlob } from '../utils';
 
 const COLOR_PALETTES = [
     ['#a855f7', '#06b6d4', '#ec4899'], // Purple, Cyan, Pink
@@ -14,7 +12,6 @@ const COLOR_PALETTES = [
     ['#00FF7F', '#8A2BE2', '#FFD700'], // SpringGreen, BlueViolet, Gold
 ];
 
-// All available visualizer modes
 const VISUALIZER_MODES = ['hud', 'galaxy', 'spectrum', 'waveform', 'vectorscope', 'strobe'];
 const VISUALIZER_MODE_NAMES: Record<string, string> = {
     hud: 'HUD',
@@ -27,27 +24,31 @@ const VISUALIZER_MODE_NAMES: Record<string, string> = {
 
 
 const ShareJamModal: React.FC = () => {
-    const { preset, toggleShareJamModal, generateShareableLink, addNotification } = useStore(state => ({
+    const { 
+        preset, mainView, arrangementLoop, 
+        toggleShareJamModal, generateShareableLink, addNotification, renderJamVideoAudio 
+    } = useStore(state => ({
         preset: state.preset,
+        mainView: state.mainView,
+        arrangementLoop: state.arrangementLoop,
         toggleShareJamModal: state.toggleShareJamModal,
         generateShareableLink: state.generateShareableLink,
         addNotification: state.addNotification,
+        renderJamVideoAudio: state.renderJamVideoAudio,
     }), shallow);
 
     const [activeTab, setActiveTab] = useState<'record' | 'share'>('record');
     
-    // Link Sharing State
     const [isLinkLoading, setIsLinkLoading] = useState(false);
     const [shareUrl, setShareUrl] = useState('');
     const [copySuccess, setCopySuccess] = useState(false);
 
-    // Video Recording State
     const [isRecording, setIsRecording] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
     const visualizerCanvasRef = useRef<HTMLCanvasElement>(null);
-    const analyserNodeRef = useRef<AnalyserNode | null>(null);
+    const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const recordedChunksRef = useRef<Blob[]>([]);
     const audioPlayerNodeRef = useRef<AudioBufferSourceNode | null>(null);
@@ -56,41 +57,34 @@ const ShareJamModal: React.FC = () => {
     const [palette, setPalette] = useState(COLOR_PALETTES[0]);
     const [mode, setMode] = useState(VISUALIZER_MODES[0]);
 
-    // This effect runs once to set up a random style and the audio analyser
     useEffect(() => {
-        // Select a random style each time the modal opens
-        setPalette(COLOR_PALETTES[Math.floor(Math.random() * COLOR_PALETTES.length)]);
-        setMode(VISUALIZER_MODES[Math.floor(Math.random() * VISUALIZER_MODES.length)]);
-
-        const audioCtx = usePlaybackStore.getState().audioEngine?.getContext();
-        const mainBus = usePlaybackStore.getState().audioEngine?.preCompressorBus;
+        const audioCtx = useStore.getState().audioEngine?.getContext();
+        const mainBus = useStore.getState().audioEngine?.preCompressorBus;
+        let localAnalyser: AnalyserNode | null = null;
         
         if (audioCtx && mainBus) {
-            const analyser = audioCtx.createAnalyser();
-            // Configure for high-resolution, professional spectrum analysis
-            analyser.fftSize = 2048;
-            analyser.minDecibels = -90;
-            analyser.maxDecibels = -10;
-            analyser.smoothingTimeConstant = 0.8;
+            localAnalyser = audioCtx.createAnalyser();
+            localAnalyser.fftSize = 2048;
+            localAnalyser.minDecibels = -90;
+            localAnalyser.maxDecibels = -10;
+            localAnalyser.smoothingTimeConstant = 0.8;
             
-            analyserNodeRef.current = analyser;
+            setAnalyserNode(localAnalyser);
             
-            // Connect to the main audio bus for live preview
-            mainBus.connect(analyser);
+            mainBus.connect(localAnalyser);
             livePreviewSourceRef.current = mainBus;
         }
 
         return () => {
-            // Cleanup on modal close
             if (audioPlayerNodeRef.current) {
                 try {
                     audioPlayerNodeRef.current.stop();
                     audioPlayerNodeRef.current.disconnect();
                 } catch(e) {}
             }
-            if (livePreviewSourceRef.current && analyserNodeRef.current) {
+            if (livePreviewSourceRef.current && localAnalyser) {
                 try {
-                    livePreviewSourceRef.current.disconnect(analyserNodeRef.current);
+                    livePreviewSourceRef.current.disconnect(localAnalyser);
                 } catch (e) {}
             }
         };
@@ -120,9 +114,9 @@ const ShareJamModal: React.FC = () => {
     };
     
     const handleStartRecording = useCallback(async () => {
-        const wasPlaying = usePlaybackStore.getState().isPlaying;
-        if (wasPlaying) {
-            usePlaybackStore.getState().stop();
+        const { stop, isPlaying } = useStore.getState();
+        if (isPlaying) {
+            stop();
             await new Promise(resolve => setTimeout(resolve, 150));
         }
 
@@ -130,52 +124,29 @@ const ShareJamModal: React.FC = () => {
         setVideoUrl(null);
         recordedChunksRef.current = [];
 
-        // Disconnect live preview to only hear the rendered audio
-        if (livePreviewSourceRef.current && analyserNodeRef.current) {
+        if (livePreviewSourceRef.current && analyserNode) {
             try {
-                livePreviewSourceRef.current.disconnect(analyserNodeRef.current);
+                livePreviewSourceRef.current.disconnect(analyserNode);
             } catch(e) {}
         }
         
-        const { preset, mutedTracks, soloedTrackId } = useStore.getState();
-        const secondsPerStep = (60.0 / preset.bpm) / 4.0;
-        const duration = 64 * secondsPerStep;
-        const sampleRate = 44100;
-        const offlineCtx = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);
-        const offlineEngine = new AudioEngine(offlineCtx);
-        await offlineEngine.init();
-
-        offlineEngine.createTrackChannels(preset.tracks);
-        offlineEngine.updateBpm(preset.bpm);
-        offlineEngine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
-        offlineEngine.updateDelay(preset.globalFxParams.delay, preset.bpm);
-        offlineEngine.updateDrive(preset.globalFxParams.drive);
-        offlineEngine.updateCharacter(preset.globalFxParams.character);
-        offlineEngine.updateMasterFilter(preset.globalFxParams.masterFilter);
-        offlineEngine.updateCompressor(preset.globalFxParams.compressor);
-        offlineEngine.updateMasterVolume(preset.globalFxParams.masterVolume);
-        
-        for (let i = 0; i < 64; i++) {
-            const time = i * secondsPerStep;
-            preset.tracks.forEach(track => {
-                const isAudible = soloedTrackId === null ? !mutedTracks.includes(track.id) : soloedTrackId === track.id;
-                if (isAudible) {
-                    const patternStepIndex = i % track.patternLength;
-                    const stepState = track.patterns[track.activePatternIndex][patternStepIndex];
-                    offlineEngine.playStep(track, stepState, time, time, 0);
-                }
-            });
+        let audioBuffer: AudioBuffer;
+        try {
+            audioBuffer = await renderJamVideoAudio();
+        } catch (error) {
+            console.error("Audio rendering for video failed:", error);
+            addNotification({ type: 'error', message: `Failed to render audio: ${error instanceof Error ? error.message : String(error)}` });
+            setIsProcessing(false);
+            return;
         }
-        
-        const audioBuffer = await offlineCtx.startRendering();
         
         setIsProcessing(false);
         setIsRecording(true);
 
         const canvas = visualizerCanvasRef.current;
-        const audioContext = usePlaybackStore.getState().audioEngine!.getContext();
+        const audioContext = useStore.getState().audioEngine!.getContext();
         
-        if (!canvas || !analyserNodeRef.current || !audioContext) {
+        if (!canvas || !analyserNode || !audioContext) {
             addNotification({ type: 'error', message: 'Recording setup failed.' });
             setIsRecording(false);
             return;
@@ -186,9 +157,7 @@ const ShareJamModal: React.FC = () => {
         
         audioPlayerNodeRef.current = audioContext.createBufferSource();
         audioPlayerNodeRef.current.buffer = audioBuffer;
-        // The player node is now the *only* thing connected to the analyser
-        audioPlayerNodeRef.current.connect(analyserNodeRef.current);
-        // Also connect to destination to hear it while recording
+        audioPlayerNodeRef.current.connect(analyserNode);
         audioPlayerNodeRef.current.connect(audioContext.destination);
         
         const recordAudioSource = audioContext.createBufferSource();
@@ -211,10 +180,9 @@ const ShareJamModal: React.FC = () => {
             const url = URL.createObjectURL(blob);
             setVideoUrl(url);
             setIsRecording(false);
-            // Reconnect live preview
-            if (livePreviewSourceRef.current && analyserNodeRef.current) {
+            if (livePreviewSourceRef.current && analyserNode) {
                 try {
-                     livePreviewSourceRef.current.connect(analyserNodeRef.current);
+                     livePreviewSourceRef.current.connect(analyserNode);
                 } catch(e) {}
             }
         };
@@ -228,7 +196,7 @@ const ShareJamModal: React.FC = () => {
                 mediaRecorderRef.current.stop();
             }
         };
-    }, [addNotification, preset]);
+    }, [addNotification, renderJamVideoAudio, analyserNode]);
 
     const handleStopRecording = useCallback(() => {
         if (mediaRecorderRef.current?.state === 'recording') {
@@ -242,13 +210,26 @@ const ShareJamModal: React.FC = () => {
         setIsRecording(false);
     }, []);
 
+    let recordButtonText = "Record 64-step Loop";
+    let recordButtonDisabled = false;
+    if (mainView === 'song') {
+        if (arrangementLoop) {
+            const durationInBeats = arrangementLoop.end - arrangementLoop.start;
+            const durationInBars = durationInBeats / 4;
+            recordButtonText = `Record Song Loop (${durationInBars} bars)`;
+        } else {
+            recordButtonText = "Set Song Loop to Record";
+            recordButtonDisabled = true;
+        }
+    }
+
     return (
         <div 
             className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in"
             onClick={() => toggleShareJamModal(false)}
         >
             <div 
-                className="bg-gradient-to-br from-neutral-900 to-black w-full max-w-3xl rounded-lg border border-purple-400/30 shadow-2xl flex flex-col animate-slide-up" 
+                className="bg-gradient-to-br from-neutral-900 to-black w-full max-w-4xl rounded-lg border border-purple-400/30 shadow-2xl flex flex-col animate-slide-up" 
                 onClick={e => e.stopPropagation()}
                 style={{ animation: 'slide-up 0.5s ease-out forwards, modal-glow 4s ease-in-out infinite' }}
             >
@@ -269,7 +250,7 @@ const ShareJamModal: React.FC = () => {
                             <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden border border-neutral-700/80 shadow-inner">
                                 <Visualizer 
                                     ref={visualizerCanvasRef} 
-                                    analyserNode={analyserNodeRef.current} 
+                                    analyserNode={analyserNode} 
                                     bpm={preset.bpm}
                                     palette={palette}
                                     mode={mode}
@@ -278,23 +259,32 @@ const ShareJamModal: React.FC = () => {
                                     {preset.name}
                                 </div>
                             </div>
-                             <div className="w-full flex items-center justify-between">
+                            <div className="w-full flex items-center justify-between mt-4">
                                 <div className="flex items-center space-x-2">
                                     {isProcessing ? (
-                                        <div className="text-purple-300">Processing audio...</div>
+                                        <div className="px-4 py-2 text-sm font-bold text-purple-300">Processing audio...</div>
                                     ) : isRecording ? (
                                         <button onClick={handleStopRecording} className="px-4 py-2 text-sm font-bold rounded-md bg-red-600 hover:bg-red-500 border border-red-500 text-white transition-colors animate-pulse">Stop Recording</button>
                                     ) : (
-                                        <button onClick={handleStartRecording} className="px-4 py-2 text-sm font-bold rounded-md bg-purple-600 hover:bg-purple-500 border border-purple-500 text-white transition-colors">Record 64-step Loop</button>
+                                        <button onClick={handleStartRecording} disabled={recordButtonDisabled} className="px-4 py-2 text-sm font-bold rounded-md bg-purple-600 hover:bg-purple-500 border border-purple-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{recordButtonText}</button>
                                     )}
                                     {videoUrl && (
                                         <a href={videoUrl} download={`${preset.name}.webm`} className="px-4 py-2 text-sm font-bold rounded-md bg-cyan-600 hover:bg-cyan-500 border border-cyan-500 text-white transition-colors">Download Video</a>
                                     )}
                                 </div>
-                                <div className="flex items-center space-x-1 p-1 bg-black/30 rounded-md border border-neutral-700/80">
-                                    {VISUALIZER_MODES.map(modeName => (
-                                        <button key={modeName} onClick={() => setMode(modeName)} className={`px-3 py-1 text-xs font-bold rounded transition-colors ${mode === modeName ? 'bg-purple-600 text-white' : 'text-neutral-400 hover:bg-neutral-700'}`}>{VISUALIZER_MODE_NAMES[modeName]}</button>
-                                    ))}
+                                <div className="flex items-center space-x-4">
+                                    <div className="flex items-center space-x-1 p-1 bg-black/30 rounded-md border border-neutral-700/80">
+                                        {VISUALIZER_MODES.map(modeName => (
+                                            <button key={modeName} onClick={() => setMode(modeName)} className={`px-3 py-1 text-xs font-bold rounded transition-colors ${mode === modeName ? 'bg-purple-600 text-white' : 'text-neutral-400 hover:bg-neutral-700'}`}>{VISUALIZER_MODE_NAMES[modeName]}</button>
+                                        ))}
+                                    </div>
+                                     <div className="flex items-center space-x-2 p-2 bg-black/30 rounded-md border border-neutral-700/80">
+                                        {COLOR_PALETTES.map((p, index) => (
+                                            <button key={index} onClick={() => setPalette(p)} className={`w-6 h-6 rounded-full transition-all duration-150 border-2 ${palette === p ? 'border-white scale-110' : 'border-transparent hover:border-white/50'}`}
+                                                style={{ background: `linear-gradient(45deg, ${p[0]}, ${p[1]})` }}
+                                            />
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
                         </div>

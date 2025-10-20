@@ -4,367 +4,270 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FM8/R User Manual</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            /* Default theme variables embedded for standalone viewing */
+        :root {
+            --accent-color: #FFB800;
             --bg-chassis: #101114;
             --bg-panel: #1A1C20;
-            --bg-panel-dark: #0A0A0A;
-            --bg-control: #1C1F23;
             --border-color: #2A2E33;
-            --border-color-light: #484D5C;
-            --accent-color: #FFB800;
             --text-light: #DCE0E6;
             --text-dark: #111111;
-            --text-muted: #8a91a0;
-            --text-screen: #E0E6F0;
-
-            /* Base styles */
-            height: 100%;
-            margin: 0;
-            padding: 0;
-            font-family: 'Roboto', sans-serif;
-            background-color: var(--bg-panel-dark);
-            color: var(--text-light);
-            line-height: 1.7;
+            --text-muted: #6A7185;
+            --border-color-light: #484D5C;
         }
         html {
-            height: 100%;
+            scroll-behavior: smooth;
         }
-        .manual-container {
-            display: flex;
-            flex-direction: column;
-            height: 100%;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1rem;
-            border-bottom: 1px solid var(--border-color);
-            flex-shrink: 0;
-            background-color: var(--bg-panel);
-        }
-        header h1 {
-            font-size: 1.25rem;
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
             color: var(--text-light);
+            background-color: var(--bg-chassis);
             margin: 0;
+            padding: 0;
             display: flex;
-            align-items: center;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-        }
-        .logo {
-            width: 28px; height: 26px;
-            display: inline-block;
-            margin-right: 0.5rem;
-            vertical-align: middle;
-            color: var(--accent-color);
-        }
-        .content-wrapper {
-            display: flex;
-            flex-grow: 1;
+            height: 100vh;
             overflow: hidden;
         }
-        nav {
-            width: 250px;
+        .sidebar {
+            width: 224px; /* w-56 */
             flex-shrink: 0;
-            background-color: rgba(0,0,0,0.2);
-            border-right: 1px solid rgba(45, 48, 53, 0.5);
+            background-color: #16181C; /* Darker panel */
+            border-right: 1px solid var(--border-color);
             padding: 1rem;
             overflow-y: auto;
-            position: sticky;
-            top: 0;
-            align-self: flex-start;
-            max-height: 100vh; /* Relative to iframe viewport */
         }
-        nav ul {
-            list-style: none;
+        .sidebar h2 {
+            font-size: 1.2em;
+            color: var(--text-light);
+            margin-top: 0;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .sidebar ul {
+            list-style-type: none;
             padding: 0;
             margin: 0;
         }
-        nav a {
-            display: flex;
-            align-items: center;
-            padding: 0.5rem;
+        .sidebar li {
+            margin-bottom: 0.5rem;
+        }
+        .sidebar a {
+            display: block;
+            padding: 0.5rem 0.75rem;
             border-radius: 6px;
             text-decoration: none;
             color: var(--text-muted);
-            font-size: 0.9rem;
+            font-weight: 500;
+            font-size: 0.875rem;
             transition: all 0.2s ease;
         }
-        nav a:hover {
-            background-color: rgba(60, 60, 60, 0.5);
-            color: white;
+        .sidebar a:hover {
+            background-color: var(--border-color);
+            color: var(--text-light);
         }
-        nav svg {
-            margin-right: 0.75rem;
-            opacity: 0.7;
-            width: 20px;
-            height: 20px;
-        }
-        main {
+        .content {
             flex-grow: 1;
-            padding: 1.5rem 2rem;
             overflow-y: auto;
-            scroll-behavior: smooth;
+            padding: 2rem;
         }
-        section {
-            margin-bottom: 2.5rem;
-            padding: 1.5rem;
-            background-color: rgba(0,0,0,0.2);
-            border-radius: 8px;
-            border: 1px solid rgba(45, 48, 53, 0.5);
-            scroll-margin-top: 1rem;
+        h1, h2, h3, h4 {
+            border-bottom: 1px solid var(--border-color-light);
+            padding-bottom: 0.5rem;
+            margin-top: 1.5rem;
         }
-        h2 {
-            font-size: 1.5rem;
-            color: var(--accent-color);
-            margin-top: 0;
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            font-family: 'Roboto Mono', monospace;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 0.75rem;
+        h1 { font-size: 2.5em; color: var(--accent-color); }
+        h2 { font-size: 1.8em; color: var(--accent-color); }
+        h3 { font-size: 1.5em; }
+        h4 { 
+            font-size: 1.1em;
+            color: var(--text-light);
+            border-bottom: none;
+            margin-top: 1.2rem;
+            margin-bottom: 0.5rem;
         }
-        h2 svg { margin-right: 0.75rem; }
-        p, li { color: var(--text-muted); font-size: 1rem; }
-        ul { padding-left: 1.5rem; list-style: square; }
-        li { margin-bottom: 0.75rem; }
-        strong, b { color: var(--text-light); font-weight: 500; }
-        kbd {
-            padding: 0.2em 0.5em;
-            font-family: 'Roboto Mono', monospace;
-            font-size: 0.9em;
-            color: var(--text-screen);
-            background-color: #3b4252;
-            border: 1px solid #4c566a;
+        p { margin-bottom: 1rem; }
+        ul, ol { margin-left: 1.5rem; margin-bottom: 1rem; }
+        li { margin-bottom: 0.5rem; }
+        code, kbd {
+            background-color: var(--border-color);
+            color: #E0E6F0;
+            padding: 0.2em 0.4em;
             border-radius: 4px;
-            box-shadow: 0 2px 2px rgba(0,0,0,0.3);
+            font-family: 'Roboto Mono', monospace;
         }
-
-        @media (max-width: 768px) {
-            .content-wrapper { flex-direction: column; }
-            nav { 
-                width: 100%; 
-                border-right: none; 
-                border-bottom: 1px solid rgba(45, 48, 53, 0.5);
-                position: static; /* Un-stick on mobile */
-                max-height: none;
-            }
-            main { padding: 1.5rem 1rem; }
+        kbd {
+            border: 1px solid var(--border-color-light);
+            padding: 0.3em 0.5em;
         }
+        a {
+            color: #81A1C1;
+            text-decoration: none;
+        }
+        a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
-    <div class="manual-container">
-        <header>
-            <h1>
-                <svg viewBox="0 0 52 50" fill="none" xmlns="http://www.w3.org/2000/svg" class="logo">
-                    <path d="M26 2L1 13.5V36.5L26 48L51 36.5V13.5L26 2Z" stroke="currentColor" stroke-width="3" stroke-linejoin="round" fill="var(--bg-panel-dark)" />
-                    <path d="M26 13L13 20V32L26 39L39 32V20L26 13Z" stroke="currentColor" stroke-width="2" stroke-opacity="0.7" />
-                </svg>
-                <span>FM8/R User Manual</span>
-            </h1>
-        </header>
+    <nav class="sidebar">
+        <h2>Manual Sections</h2>
+        <ul>
+            <li><a href="#welcome">Welcome</a></li>
+            <li><a href="#sequencer">Sequencer</a></li>
+            <li><a href="#instrument-editor">Instrument Editor</a></li>
+            <li><a href="#sound-engines">Sound Engines</a></li>
+            <li><a href="#mixer-pianoroll">Mixer & Piano Roll</a></li>
+            <li><a href="#effects-rack">Effects Rack</a></li>
+            <li><a href="#song-mode">Song Mode</a></li>
+            <li><a href="#export-share">Export & Share</a></li>
+            <li><a href="#store">Store</a></li>
+            <li><a href="#license">License</a></li>
+            <li><a href="#midi">MIDI</a></li>
+            <li><a href="#shortcuts">Shortcuts</a></li>
+        </ul>
+    </nav>
+    <main class="content">
+        <h1>FM8/R User Manual</h1>
 
-        <div class="content-wrapper">
-            <nav>
-                <ul>
-                    <li><a href="#philosophy"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 12c0-5.25-4.25-9.5-9.5-9.5S2.5 6.75 2.5 12s4.25 9.5 9.5 9.5c.34 0 .67-.02 1-.05" /><path d="M19.5 22c-5.25 0-9.5-4.25-9.5-9.5S14.25 3 19.5 3" /></svg>Design Philosophy</a></li>
-                    <li><a href="#engines"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" /><path d="m15.5 15.5-3-3-3-3-3.5 3.5" /><path d="m8.5 8.5 3 3 3 3 3.5-3.5" /></svg>Sound Engines</a></li>
-                    <li><a href="#sequencer"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="7" y1="3" x2="7" y2="21" /><line x1="17" y1="3" x2="17" y2="21" /><line x1="3" y1="7" x2="21" y2="7" /><line x1="3" y1="17" x2="21" y2="17" /></svg>The Sequencer</a></li>
-                    <li><a href="#editor"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8a4.5 4.5 0 1 0-9 0 4.5 4.5 0 0 0-2.5 8.2" /><circle cx="12" cy="12" r="3" /></svg>Instrument Editor</a></li>
-                    <li><a href="#mixer"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0" /><path d="M8 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0" /><path d="M12 6V18" /><path d="M12 6H8" /><path d="M12 12H16" /></svg>Mixer & Piano Roll</a></li>
-                    <li><a href="#effects"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h2l2-8l4 16l4-8l2 4h3" /></svg>Master Effects</a></li>
-                    <li><a href="#song-mode"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>Song Mode</a></li>
-                    <li><a href="#presets"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>Saving & Loading</a></li>
-                    <li><a href="#export"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>Export & Share</a></li>
-                    <li><a href="#midi"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2v0Z" /><path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12v0Z" /><path d="M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4v0Z" /></svg>MIDI Control</a></li>
-                    <li><a href="#shortcuts"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2" ry="2" /><path d="M6 11h.01" /><path d="M10 11h.01" /><path d="M14 11h.01" /><path d="M18 11h.01" /><path d="M8 15h.01" /><path d="M12 15h.01" /><path d="M16 15h.01" /><path d="M7 19h10" /></svg>Shortcuts</a></li>
-                    <li><a href="#requirements"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><rect x="6" y="2" width="12" height="8" rx="2" ry="2"></rect><line x1="12" y1="10" x2="12" y2="14"></line></svg>System Requirements</a></li>
-                </ul>
-            </nav>
-
-            <main>
-                <section id="philosophy">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 12c0-5.25-4.25-9.5-9.5-9.5S2.5 6.75 2.5 12s4.25 9.5 9.5 9.5c.34 0 .67-.02 1-.05" /><path d="M19.5 22c-5.25 0-9.5-4.25-9.5-9.5S14.25 3 19.5 3" /></svg>
-                        Design Philosophy
-                    </h2>
-                    <p>Welcome to FM8/R, a professional groovebox engineered by <strong>Another Machines</strong> for producers to create their own unique loops for any DAW. While it lives in a virtual cloud, its heart is modular, offering deep sound sculpting capabilities inspired by hardware workflows. We are constantly in development, with exciting new features planned for future updates.</p>
-                    <p><b>This is not just a tool; it's an instrument for sonic exploration.</b></p>
-                </section>
-        
-                <section id="engines">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" /><path d="m15.5 15.5-3-3-3-3-3.5 3.5" /><path d="m8.5 8.5 3 3 3 3 3.5-3.5" /></svg>
-                        The Sound Engines
-                    </h2>
-                    <p>FM8/R features 8 distinct sound engines, each designed for a specific sonic purpose. Understanding them is key to mastering the machine.</p>
-                    <ul>
-                        <li><strong>KICK:</strong> A powerful, punchy drum synth for crafting everything from tight clicks to booming sub-basses.</li>
-                        <li><strong>HAT:</strong> A versatile noise and resonator engine for creating a wide range of hi-hats, cymbals, and metallic percussion.</li>
-                        <li><strong>ARCANE:</strong> A dual-oscillator synth with phase modulation, sync, and wavefolding. Perfect for complex digital tones, pads, and aggressive leads.</li>
-                        <li><strong>RUIN:</strong> A distortion and feedback-focused engine for destructive, noisy, and chaotic basslines and textures.</li>
-                        <li><strong>ARTIFICE:</strong> A sophisticated synth voice with dual multi-mode filters, FM, and noise mixing. Ideal for intricate sound design, evolving pads, and complex percussive hits.</li>
-                        <li><strong>SHIFT:</strong> A wavetable oscillator with unique 'bend' and 'twist' parameters for creating shifting, glassy, and formant-like sounds.</li>
-                        <li><strong>RESON:</strong> A physical modeling engine that simulates the sound of struck objects. Excellent for realistic (and unrealistic) bells, plucks, and resonant percussion.</li>
-                        <li><strong>ALLOY:</strong> A 2-operator FM synth designed for creating classic metallic, bell-like, and electric piano sounds with a sharp, percussive character.</li>
-                    </ul>
-                </section>
-        
-                <section id="sequencer">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="7" y1="3" x2="7" y2="21" /><line x1="17" y1="3" x2="17" y2="21" /><line x1="3" y1="7" x2="21" y2="7" /><line x1="3" y1="17" x2="21" y2="17" /></svg>
-                        The Sequencer
-                    </h2>
-                    <p>The main grid is where you create patterns. Click a step to activate it. The selected track's instrument will play on that step. You can change pattern length, randomize, and create complex rhythms using Euclidean mode.</p>
-                    <p><strong>P-Locks (Parameter Locks):</strong> Enable <kbd>P-LOCK</kbd> mode to edit parameters for individual steps. Select a step, then adjust any knob in the Instrument Editor or Mixer. This locks the new value to that specific step, creating dynamic, evolving patterns.</p>
-                    <p><strong>Trig Conditions:</strong> When in P-LOCK mode, select a step to access its Trigger Condition. This allows you to set rules for when a step will play (e.g., '50%' probability, or only on the '2nd' time through the pattern), adding immense variation.</p>
-                    <p><strong>Euclidean Rhythms:</strong> Activate Euclidean mode from the sequencer toolbar to generate complex, musical rhythms automatically. Adjust Pulses, Steps, and Rotation to explore a world of polyrhythms.</p>
-                </section>
-        
-                <section id="editor">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8a4.5 4.5 0 1 0-9 0 4.5 4.5 0 0 0-2.5 8.2" /><circle cx="12" cy="12" r="3" /></svg>
-                        Instrument Editor
-                    </h2>
-                    <p>Select a track to see its sound engine parameters here. Each engine has a unique set of controls. Experiment to find new sounds! Detailed descriptions of each engine's core purpose can be found in the "Sound Engines" section above.</p>
-                    <p><strong>Presets:</strong> Save and load instrument sounds using the preset manager at the top. This is a great way to build your personal sound library and speed up your workflow.</p>
-                    <p><strong>Automation:</strong> Activate the <kbd>REC AUTOM</kbd> button to record knob movements. Any parameter you tweak while recording will be captured as automation for the selected track, adding life and movement to your sounds.</p>
-                </section>
-
-                <section id="mixer">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0" /><path d="M8 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0" /><path d="M12 6V18" /><path d="M12 6H8" /><path d="M12 12H16" /></svg>
-                        Mixer & Piano Roll
-                    </h2>
-                    <p>The bottom center panel serves two roles. By default, it's the <strong>Mixer</strong>, where you can adjust volume, pan, and effect sends for each of the 8 tracks. This is where you balance your overall sound.</p>
-                    <p>For melodic tracks, you can toggle to the <strong>Piano Roll</strong> view using the keyboard icon in the sequencer toolbar. This provides a traditional piano-style interface for composing melodies, chords, and basslines with precise control over note pitch and length.</p>
-                </section>
-
-                <section id="effects">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h2l2-8l4 16l4-8l2 4h3" /></svg>
-                        Master Effects
-                    </h2>
-                    <p>The right-hand panel contains the master effects rack, which processes the entire mix. Use these to add polish, space, and character to your sound.</p>
-                    <ul>
-                        <li><strong>Master Filter:</strong> A global LP/HP filter for broad tonal shaping and buildups.</li>
-                        <li><strong>Character:</strong> Adds harmonic complexity through four modes: Saturate, Overdrive, Bitcrush, and Fold.</li>
-                        <li><strong>Delay:</strong> A tempo-synced or free-running delay for creating echoes and rhythmic complexity.</li>
-                        <li><strong>Reverb:</strong> Adds space and depth to your mix, from small rooms to vast caverns.</li>
-                        <li><strong>Drive:</strong> A master distortion unit for adding warmth, grit, or aggressive overdrive to the entire mix.</li>
-                        <li><strong>Master Compressor:</strong> The final "glue" for your track. It helps to control dynamics and increase perceived loudness. Can be sidechained from any track.</li>
-                    </ul>
-                </section>
-
-                <section id="song-mode">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
-                        Song Mode
-                    </h2>
-                    <p>Switch from <strong>PATTERN</strong> to <strong>SONG</strong> mode to arrange your patterns into a full track. In this view, you can place clips of your patterns onto a timeline for each track.</p>
-                    <p>Click <kbd>ADD PATTERN</kbd>, select a pattern number, and click on the timeline to place a clip. You can then move, resize, and duplicate clips to build your song structure. Use the Loop control at the top of the timeline to define a region for playback or export.</p>
-                </section>
-
-                <section id="presets">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
-                        Saving & Loading
-                    </h2>
-                    <p>You can manage both full projects and individual instrument sounds.</p>
-                    <ul>
-                        <li><strong>Project Library:</strong> Access via the project name display in the top header. Here you can save, load, rename, and delete entire projects (all 8 tracks, patterns, and settings).</li>
-                        <li><strong>Instrument Presets:</strong> Found at the top of the Instrument Editor. This allows you to save and load the sound of a single track, making it easy to reuse your favorite kick, bass, or lead sounds across different projects.</li>
-                    </ul>
-                </section>
-
-                <section id="export">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
-                        Export & Share
-                    </h2>
-                    <p>When you're ready to take your loops out of FM8/R, use the <kbd>EXPORT</kbd> button. You have several options:</p>
-                    <ul>
-                        <li><strong>Master Output:</strong> Renders a single stereo WAV file of your full mix.</li>
-                        <li><strong>Wet Stems:</strong> Exports each audible track as a separate WAV file, including the master send effects (Reverb, Delay, Drive).</li>
-                        <li><strong>Dry Stems:</strong> Exports each track as a pure, clean WAV file with no master effects, perfect for mixing in your DAW.</li>
-                    </ul>
-                    <p>The <kbd>SHARE JAM</kbd> button opens a powerful sharing suite. You can record a video of your current loop—complete with a dynamic visualizer—and download it as a .webm file for social media. You can also generate a unique link with your compressed project data for others to listen to instantly in their browser.</p>
-                </section>
-
-                <section id="midi">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2v0Z" /><path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12v0Z" /><path d="M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4v0Z" /></svg>
-                        MIDI Control
-                    </h2>
-                    <p>FM8/R has a powerful MIDI Learn system. Go to <kbd>Settings</kbd> &gt; <kbd>MIDI Mapping</kbd> and click the <kbd>MIDI LEARN</kbd> button.</p>
-                    <p>While in learn mode, first click any parameter (knob, button, etc.) on the screen, then move a physical control on your MIDI controller. The mapping will be created automatically. You can also send MIDI out from a MIDI track to control external hardware or software.</p>
-                </section>
-        
-                <section id="shortcuts">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2" ry="2" /><path d="M6 11h.01" /><path d="M10 11h.01" /><path d="M14 11h.01" /><path d="M18 11h.01" /><path d="M8 15h.01" /><path d="M12 15h.01" /><path d="M16 15h.01" /><path d="M7 19h10" /></svg>
-                        Keyboard Shortcuts
-                    </h2>
-                    <ul>
-                        <li><kbd>Spacebar</kbd>: Play / Pause</li>
-                        <li><kbd>Ctrl/Cmd + C</kbd> (on step): Copy Step</li>
-                        <li><kbd>Ctrl/Cmd + V</kbd> (on step): Paste Step</li>
-                        <li><kbd>Ctrl/Cmd + Shift + C</kbd>: Copy Pattern</li>
-                        <li><kbd>Ctrl/Cmd + Shift + V</kbd>: Paste Pattern</li>
-                    </ul>
-                </section>
-                <section id="requirements">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><rect x="6" y="2" width="12" height="8" rx="2" ry="2"></rect><line x1="12" y1="10" x2="12" y2="14"></line></svg>
-                        System Requirements & Disclaimer
-                    </h2>
-                    <p>For the best experience, please ensure your system meets the following recommendations.</p>
-                    <ul>
-                        <li><strong>Browser:</strong> The latest version of <strong>Google Chrome</strong> is strongly recommended for optimal performance and full compatibility with the Web Audio and Web MIDI APIs. Other modern browsers (Firefox, Edge) may work but are not officially supported.</li>
-                        <li><strong>CPU:</strong> Intel Core i5 (or equivalent) 2.5GHz or faster. Real-time audio synthesis is CPU-intensive.</li>
-                        <li><strong>RAM:</strong> 8GB minimum, 16GB or more recommended for complex projects.</li>
-                        <li><strong>Operating System:</strong> A modern desktop OS such as Windows 10+, macOS 11+, or a recent Linux distribution.</li>
-                    </ul>
-                    <p style="padding: 1rem; background-color: rgba(255, 184, 0, 0.1); border: 1px solid rgba(255, 184, 0, 0.2); border-radius: 6px; font-size: 0.9rem; margin-top: 1rem;">
-                        <strong>Disclaimer:</strong> FM8/R is an experimental instrument under active development. While we strive for stability, you may encounter occasional bugs or performance issues. We appreciate your understanding and feedback as we continue to improve the experience.
-                    </p>
-                </section>
-            </main>
+        <div id="welcome">
+            <h2>Welcome to FM8/R</h2>
+            <p>FM8/R is a powerful groovebox designed for modern electronic music production, with a focus on techno and related genres. This guide will walk you through the main features to get you started.</p>
         </div>
-    </div>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            if (new URLSearchParams(window.location.search).get('iframe') === 'true') {
-                const header = document.querySelector('header');
-                if (header) header.style.display = 'none';
-                const container = document.querySelector('.manual-container');
-                if (container) container.style.height = '100%';
-            }
-            const links = document.querySelectorAll('nav a');
-            links.forEach(link => {
-                link.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    const targetId = this.getAttribute('href').substring(1);
-                    const targetElement = document.getElementById(targetId);
-                    if (targetElement) {
-                        targetElement.scrollIntoView({
-                            behavior: 'smooth',
-                            block: 'start'
-                        });
-                    }
-                });
-            });
-        });
-    </script>
+
+        <div id="sequencer">
+            <h2>The Sequencer</h2>
+            <p>The sequencer is where you create your patterns. Each row represents a track, and the grid represents time.</p>
+            <ul>
+                <li><strong>Creating Trigs:</strong> Click on a step in the grid to activate it. A lit step will trigger a sound.</li>
+                <li><strong>Track Selection:</strong> Click on a track's header on the left to select it for editing in the Instrument Editor.</li>
+                <li><strong>P-Locks (Parameter Locks):</strong> Enable <span style="color: #22d3ee; font-weight: bold;">P-LOCK</span> mode. Now, when you select a step, you can use the knobs at the bottom to change parameters for that step only. This is key for creating dynamic and evolving patterns.</li>
+                <li><strong>Pattern Controls:</strong> Use the controls above the grid to change patterns, set pattern length, randomize, and generate Euclidean rhythms.</li>
+                <li><strong>Piano Roll:</strong> Click the piano icon in the top-left of the sequencer to switch to the Piano Roll view for melodic sequencing.</li>
+            </ul>
+        </div>
+
+        <div id="instrument-editor">
+            <h2>Instrument Editor</h2>
+            <p>This is where you design the sound for the currently selected track. Each track has a unique sound engine.</p>
+            <ul>
+                <li><strong>Knobs:</strong> Drag vertically on a knob to change its value. Hold <kbd>Shift</kbd> while dragging for fine control. Double-click a knob's value to type in a number.</li>
+                <li><strong>Presets:</strong> Use the Instrument Preset manager at the top of the editor to save, load, and randomize sounds for the current track type.</li>
+                <li><strong>Automation:</strong> Click the <span style="color: #ef4444; font-weight: bold;">REC AUTOM</span> button to record knob movements into your pattern or song.</li>
+            </ul>
+        </div>
+        
+        <div id="sound-engines">
+            <h2>Sound Engines (The 8 Instruments)</h2>
+            <p>Each track runs a specialized synthesizer. Understanding them is the key to mastering sound design in FM8/R.</p>
+            <ul>
+                <li>
+                    <h4>Kick: The Foundation</h4>
+                    <p>A dedicated kick drum synthesizer. Perfect for everything from deep, resonant sub-basses to hard-hitting techno punches. Key parameters include <code>Tune</code> (pitch), <code>Decay</code> (length), <code>Impact</code> (the initial click or "beater" sound), and <code>Character</code> (saturation/distortion).</p>
+                </li>
+                 <li>
+                    <h4>Hat: Rhythmic Texture</h4>
+                    <p>A versatile noise-based percussion synth. Ideal for hi-hats, shakers, and noise textures. <code>Tone</code> adjusts the core frequency, <code>Character</code> adds metallic quality, and <code>Spread</code> creates stereo width by detuning internal oscillators.</p>
+                </li>
+                 <li>
+                    <h4>Arcane: Digital Playground</h4>
+                    <p>A dual-oscillator synth specializing in Phase Modulation (PM) and wavefolding. Capable of complex digital tones, bells, and aggressive leads. The <code>Mode</code> switch changes how the oscillators interact (PM, Additive, Ring Mod, Hard Sync), while <code>Mod Amount</code> and <code>Fold</code> are your main tools for sonic exploration.</p>
+                </li>
+                 <li>
+                    <h4>Ruin: Destructive Synthesis</h4>
+                    <p>A synth designed for chaos. It excels at aggressive basses, distorted leads, and industrial noise. The core is the <code>Algorithm</code> parameter, which selects different methods of feedback, distortion, and folding. <code>Timbre</code>, <code>Drive</code>, and <code>Fold</code> add layers of grit and destruction.</p>
+                </li>
+                 <li>
+                    <h4>Artifice: Sound Designer's Dream</h4>
+                    <p>The most complex engine. It features two oscillators with FM, a noise source, and a powerful dual filter that can run in series or parallel. Excellent for intricate pads, sharp plucks, evolving textures, and experimental sounds. The interaction between the <code>Osc Mix</code>, <code>Noise Level</code>, and the dual filter controls (<code>Cutoff, Reso, Spread</code>) is where the magic happens.</p>
+                </li>
+                 <li>
+                    <h4>Shift: Wavetable Synthesis</h4>
+                    <p>A modern wavetable synth. The <code>Table</code> parameter selects a set of waveforms, and <code>Position</code> smoothly scans through them. <code>Bend</code> and <code>Twist</code> further warp the fabric of the sound. Ideal for evolving pads, complex modern tones, and sounds with intricate timbral movement.</p>
+                </li>
+                <li>
+                    <h4>Reson: Physical Modeling</h4>
+                    <p>A physical modeling resonator that simulates the sound of an object being struck. It doesn't use traditional oscillators. Instead, an "exciter" (a noise burst or impulse) strikes a virtual object. Parameters like <code>Structure</code> (inharmonicity), <code>Brightness</code>, <code>Decay</code>, and <code>Material</code> define the object's properties. Perfect for realistic (and unrealistic) bells, woodblocks, and metallic percussion.</p>
+                </li>
+                <li>
+                    <h4>Alloy: Classic FM</h4>
+                    <p>A classic 2-operator FM (Frequency Modulation) synthesizer. A simple but powerful way to get classic digital sounds. The <code>Ratio</code> control sets the frequency relationship between the two operators, which is the key to creating different timbres. The <code>Modulator Envelope</code> (Mod Level/Decay) defines how the sound changes over time. Famous for bells, electric pianos, and sharp, punchy basses.</p>
+                </li>
+            </ul>
+        </div>
+
+        <div id="mixer-pianoroll">
+            <h2>Mixer & Piano Roll Panel</h2>
+            <p>This central bottom panel can be switched between two views.</p>
+            <ul>
+                <li><strong>Mixer:</strong> Adjust volume, pan, and FX sends for each track. Mute and solo tracks to focus on specific elements.</li>
+                <li><strong>Piano Roll:</strong> When enabled via the sequencer toolbar, this view allows for detailed melodic and chordal sequencing for the selected track. You can adjust note pitch, velocity, and duration.</li>
+            </ul>
+        </div>
+
+        <div id="effects-rack">
+            <h2>Effects Rack</h2>
+            <p>The global effects on the right process the entire mix, adding space, texture, and punch.</p>
+            <ul>
+                <li><strong>Sends:</strong> Each track has sends for Reverb, Delay, and Drive.</li>
+                <li><strong>Master Chain:</strong> The signal goes through a Master Filter, Character (saturation/distortion), a master Compressor, and finally a Limiter. Use these to glue your mix together.</li>
+            </ul>
+        </div>
+        
+        <div id="song-mode">
+            <h2>Song Mode & Arrangement</h2>
+            <p>Switch from PATTERN to SONG view in the top transport controls to arrange your patterns into a full track.</p>
+            <ul>
+                <li><strong>Clips:</strong> In Song mode, the sequencer becomes an arrangement view. You can place clips, which are instances of your patterns, on the timeline.</li>
+                <li><strong>Adding Clips:</strong> Enable "ADD PATTERN" mode, select a pattern number, and click on a track's lane in the timeline to place it.</li>
+                <li><strong>Editing Clips:</strong> Click a clip to select it. Drag to move it, or drag its right edge to change its duration. Press <kbd>Delete</kbd> or <kbd>Backspace</kbd> to remove the selected clip.</li>
+            </ul>
+        </div>
+
+        <div id="export-share">
+            <h2>Export & Share</h2>
+            <p>Finalize and share your work using the dedicated modals.</p>
+            <ul>
+                <li><strong>Export:</strong> Render your project as high-quality WAV files. You can export the full stereo master or individual track "stems" for mixing in a traditional DAW.</li>
+                <li><strong>Share Jam:</strong> This powerful feature lets you either record a video of your loop with a cool visualizer for social media, or generate a unique URL that contains your entire project. Anyone with the link can listen to your jam instantly.</li>
+            </ul>
+        </div>
+
+        <div id="store">
+            <h2>Expansion Packs & Store</h2>
+            <p>Expand your sonic palette by visiting the Store.</p>
+            <ul>
+                <li><strong>Install Packs:</strong> The Store contains official and custom expansion packs. Installing a pack adds its projects and instrument presets to your library, ready to be used and remixed.</li>
+            </ul>
+        </div>
+
+        <div id="license">
+            <h2>License & Viewer Mode</h2>
+            <p>FM8/R operates in a limited "Viewer Mode" by default.</p>
+            <ul>
+                <li><strong>Limitations:</strong> In Viewer Mode, only the first 3 sound engines are available, and Song Mode is disabled.</li>
+                <li><strong>Unlock Full Version:</strong> To unlock all 8 sound engines and all features, please consider purchasing a license. Your support makes future development possible!</li>
+            </ul>
+        </div>
+
+        <div id="midi">
+            <h2>MIDI</h2>
+            <p>Integrate FM8/R with your hardware setup.</p>
+            <ul>
+                <li><strong>MIDI Learn:</strong> In the Settings modal, you can enable MIDI Learn mode to easily map knobs and buttons on your controller to almost any parameter in the app.</li>
+                <li><strong>MIDI Sync:</strong> You can configure FM8/R to send or receive MIDI clock signals to synchronize its tempo with external drum machines, synthesizers, or your DAW.</li>
+            </ul>
+        </div>
+
+        <div id="shortcuts">
+            <h2>Shortcuts</h2>
+            <ul>
+                <li><kbd>Spacebar</kbd>: Play / Pause</li>
+                <li><kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd>: Copy current pattern</li>
+                <li><kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd>: Paste copied pattern</li>
+                <li><kbd>Ctrl/Cmd</kbd> + <kbd>C</kbd>: Copy selected step (in P-Lock mode)</li>
+                <li><kbd>Ctrl/Cmd</kbd> + <kbd>V</kbd>: Paste copied step (in P-Lock mode)</li>
+            </ul>
+        </div>
+    </main>
 </body>
 </html>

@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
 import { MidiMapTarget, MidiMapping } from '../types';
 import { useStore } from '../store/store';
-import { usePlaybackStore } from '../store/playbackStore';
 
 interface MidiContextState {
     isLearning: boolean;
@@ -51,7 +50,6 @@ export const MidiContextProvider: React.FC<MidiContextProviderProps> = ({ childr
     const [isLearning, setIsLearning] = useState(false);
     const [learningTarget, setLearningTarget] = useState<MidiMapTarget | null>(null);
 
-    // Refs to hold the latest selected IDs to prevent stale closures in the event handler.
     const selectedInputIdRef = useRef(selectedInputId);
     selectedInputIdRef.current = selectedInputId;
     const selectedOutputIdRef = useRef(selectedOutputId);
@@ -73,11 +71,10 @@ export const MidiContextProvider: React.FC<MidiContextProviderProps> = ({ childr
     const handleMidiMessage = useCallback((event: MIDIMessageEvent) => {
         const [status, data1, data2] = event.data;
 
-        // Handle system real-time messages directly (e.g., MIDI Clock)
         if (status >= 0xF8) {
-            const { midiSyncSource } = useStore.getState();
+            const { midiSyncSource, handleMidiSyncMessage } = useStore.getState();
             if (midiSyncSource !== 'internal') {
-                usePlaybackStore.getState().handleMidiSyncMessage(status);
+                handleMidiSyncMessage(status);
             }
             return;
         }
@@ -126,8 +123,6 @@ export const MidiContextProvider: React.FC<MidiContextProviderProps> = ({ childr
             return;
         }
     
-        // Unhandled messages are now ignored, as control scripts are removed.
-
     }, [isLearning, learningTarget, mappings, setMappings]);
     
     const toggleLearningMode = useCallback(() => {
@@ -146,7 +141,6 @@ export const MidiContextProvider: React.FC<MidiContextProviderProps> = ({ childr
         setInputs(newInputs);
         setOutputs(newOutputs);
         
-        // Fallback logic to select the first device if the current one is disconnected
         const isSelectedInputConnected = newInputs.some(i => i.id === selectedInputIdRef.current);
         if (!isSelectedInputConnected && newInputs.length > 0) {
             setSelectedInputId(newInputs[0].id);
@@ -191,7 +185,6 @@ export const MidiContextProvider: React.FC<MidiContextProviderProps> = ({ childr
     }, [updateDevices]);
 
     useEffect(() => {
-        // Detach the handler from all inputs first to avoid multiple listeners
         inputs.forEach(input => {
             input.onmidimessage = null;
         });
@@ -199,11 +192,9 @@ export const MidiContextProvider: React.FC<MidiContextProviderProps> = ({ childr
         const selectedInput = inputs.find(input => input.id === selectedInputId);
 
         if (selectedInput) {
-            // Attach the handler only to the selected input
             selectedInput.onmidimessage = handleMidiMessage;
         }
 
-        // Cleanup function to remove the handler when the component unmounts or dependencies change
         return () => {
             if (selectedInput) {
                 selectedInput.onmidimessage = null;

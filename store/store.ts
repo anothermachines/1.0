@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create, StoreApi } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { 
@@ -13,14 +13,200 @@ import { INITIAL_INSTRUMENT_PRESET_LIBRARY } from '../instrumentPresetLibrary';
 import { deepClone, deepMerge, createTechnoPattern, randomizeKickParams, randomizeHatParams, randomizeArcaneParams, randomizeRuinParams, randomizeArtificeParams, randomizeShiftParams, randomizeResonParams, randomizeAlloyParams, audioBufferToWav, downloadBlob, generateEuclideanPattern, generateWaveformData, setDeep, generateWaveformForPattern, midiToNoteName, getInitialParamsForType } from '../utils';
 import { createEmptyPatterns, INITIAL_KICK_PARAMS, INITIAL_HAT_PARAMS, INITIAL_ARCANE_PARAMS, INITIAL_RUIN_PARAMS, INITIAL_ARTIFICE_PARAMS, INITIAL_SHIFT_PARAMS, INITIAL_RESON_PARAMS, INITIAL_ALLOY_PARAMS } from '../constants';
 import { useVUMeterStore } from './vuMeterStore';
-import { usePlaybackStore } from './playbackStore';
 import { shallow } from 'zustand/shallow';
 
 declare let JSZip: any;
 
-let audioEngine: AudioEngine | null = null;
+// --- Playback Logic & State (Merged from playbackStore.ts) ---
 
-// RENDER HELPERS
+let audioEngine: AudioEngine | null = null;
+let sequencerTimerId: number | null = null;
+let playStartTime = 0;
+let playStartOffset = 0;
+let levelMonitorId: number | null = null;
+
+const PULSES_PER_STEP = 6; // 24 PPQN / 4 (for 16th notes)
+
+function startLevelMonitoring() {
+    if (levelMonitorId) {
+        cancelAnimationFrame(levelMonitorId);
+    }
+    const monitor = () => {
+        if (audioEngine) {
+            if (useStore.getState().uiPerformanceMode !== 'off') {
+                const trackLevels = audioEngine.getTrackLevels();
+                const masterLevel = audioEngine.getMasterLevel();
+                useVUMeterStore.setState({ audioLevels: trackLevels, masterLevel });
+            }
+        }
+        levelMonitorId = requestAnimationFrame(monitor);
+    };
+    levelMonitorId = requestAnimationFrame(monitor);
+}
+
+function playOnePatternStep(stepToPlay: number) {
+    if (!audioEngine) return;
+    const { preset, mutedTracks, soloedTrackId } = useStore.getState();
+    if (!preset) return;
+    const time = audioEngine.getContext().currentTime + 0.01;
+    const secondsPerStep = (60.0 / preset.bpm) / 4.0;
+    const loopTime = (stepToPlay % 64) * secondsPerStep;
+    const loopCount = Math.floor(stepToPlay / 64);
+
+    if (stepToPlay > 0 && stepToPlay % 64 === 0) audioEngine.resetTriggerStates();
+
+    preset.tracks.forEach(track => {
+        const isAudible = soloedTrackId === null ? !mutedTracks.includes(track.id) : soloedTrackId === track.id;
+        if (isAudible) {
+            const patternStepIndex = stepToPlay % track.patternLength;
+            const stepState = track.patterns[track.activePatternIndex][patternStepIndex];
+            audioEngine.playStep(track, stepState, time, loopTime, loopCount);
+        }
+    });
+}
+
+const scheduleAheadTime = 0.1; 
+const schedulerInterval = 25;
+
+function scheduler() {
+    if (!audioEngine) return;
+    
+    const { isPlaying } = useStore.getState();
+    const { preset, mainView, mutedTracks, soloedTrackId, arrangementLoop, recordingClips, selectedTrackId } = useStore.getState();
+
+    if (!isPlaying || !preset) return;
+    
+    const { tracks, arrangementClips } = preset;
+    
+    audioEngine.cleanupVoices();
+    const audioCtxTime = audioEngine.getContext().currentTime;
+    
+    if (mainView === 'pattern') {
+        let { lastScheduledStepTime, totalStepsElapsed } = useStore.getState();
+        
+        if (lastScheduledStepTime < audioCtxTime) {
+            lastScheduledStepTime = audioCtxTime;
+        }
+
+        const selectedTrack = tracks.find(t => t.id === selectedTrackId);
+        const patternLength = selectedTrack ? selectedTrack.patternLength : 64;
+
+        while (lastScheduledStepTime < audioCtxTime + scheduleAheadTime) {
+            const stepToPlay = totalStepsElapsed;
+            if (stepToPlay > 0 && stepToPlay % 64 === 0) audioEngine.resetTriggerStates();
+            
+            const secondsPerStep = (60.0 / preset.bpm) / 4.0;
+            const loopTime = (stepToPlay % 64) * secondsPerStep;
+            const loopCount = Math.floor(stepToPlay / 64);
+
+            preset.tracks.forEach(track => {
+                const isAudible = soloedTrackId === null ? !mutedTracks.includes(track.id) : soloedTrackId === track.id;
+
+                if (isAudible) {
+                    const patternStepIndex = stepToPlay % track.patternLength;
+                    const stepState = track.patterns[track.activePatternIndex][patternStepIndex];
+                    audioEngine.playStep(track, stepState, lastScheduledStepTime, loopTime, loopCount);
+                }
+            });
+            
+            totalStepsElapsed++;
+            lastScheduledStepTime += secondsPerStep;
+            useStore.setState({ 
+                currentStep: stepToPlay % patternLength,
+                totalStepsElapsed,
+                lastScheduledStepTime
+            });
+        }
+    } else { // Song Mode
+        const scheduleWindowStart = useStore.getState().lastScheduledSongTime;
+        const freshPlayheadTime = playStartOffset + (audioEngine.getContext().currentTime - playStartTime);
+        let scheduleWindowEnd = freshPlayheadTime + scheduleAheadTime;
+        
+        const secondsPerBeat = 60 / preset.bpm;
+
+        if (scheduleWindowStart >= scheduleWindowEnd) return;
+
+        const secondsPerStep = (60.0 / preset.bpm) / 4.0;
+        
+        const liveRecordingTrackIds = new Set(recordingClips.map(c => c.trackId));
+
+        const clipsToPlay = (arrangementClips || []).filter(clip => !liveRecordingTrackIds.has(clip.trackId));
+        const livePatternsToPlay = tracks.filter(track => liveRecordingTrackIds.has(track.id));
+        
+        const scheduleClips = (clips: (ArrangementClip | Track)[], isLivePattern: boolean) => {
+            clips.forEach(clipOrTrack => {
+                let clip: ArrangementClip;
+                let track: Track | undefined;
+                if (isLivePattern) {
+                    track = clipOrTrack as Track;
+                    const recClip = recordingClips.find(c => c.trackId === track!.id);
+                    if (!recClip) return;
+                    clip = recClip;
+                } else {
+                    clip = clipOrTrack as ArrangementClip;
+                    track = tracks.find(t => t.id === clip.trackId);
+                }
+
+                const isAudible = soloedTrackId === null ? !mutedTracks.includes(clip.trackId) : soloedTrackId === clip.trackId;
+
+                if (track && isAudible) {
+                    const clipStartSeconds = clip.startTime * secondsPerBeat;
+                    const clipDurationSeconds = clip.duration * secondsPerBeat;
+
+                    const firstStepInWindow = Math.floor(Math.max(0, scheduleWindowStart - clipStartSeconds) / secondsPerStep);
+                    const lastStepInWindow = Math.ceil(Math.max(0, scheduleWindowEnd - clipStartSeconds) / secondsPerStep);
+
+                    for (let step = firstStepInWindow; step < lastStepInWindow; step++) {
+                        const stepTimeInClip = step * secondsPerStep;
+                        if (stepTimeInClip >= clipDurationSeconds && !isLivePattern) continue;
+
+                        const absoluteStepTime = clipStartSeconds + stepTimeInClip;
+
+                        if (absoluteStepTime >= scheduleWindowStart && absoluteStepTime < scheduleWindowEnd) {
+                            let contextTimeForStep = playStartTime + (absoluteStepTime - playStartOffset);
+
+                            if (contextTimeForStep < audioCtxTime) {
+                                const timeDiff = audioCtxTime - contextTimeForStep;
+                                if (timeDiff > 0.05) { 
+                                    contextTimeForStep = audioCtxTime;
+                                }
+                            }
+
+                            const patternIndex = clip.patternIndex ?? 0;
+                            const pattern = track.patterns[patternIndex];
+                            if (!pattern) continue;
+
+                            const patternStepIndex = step % track.patternLength;
+                            const stepState = pattern[patternStepIndex];
+
+                            const loopTimeForAutomation = (patternStepIndex % 64) * secondsPerStep;
+                            const loopCountForTrigs = Math.floor(step / track.patternLength);
+                            
+                            audioEngine!.playStep(track, stepState, contextTimeForStep, loopTimeForAutomation, loopCountForTrigs);
+                        }
+                    }
+                }
+            });
+        };
+
+        scheduleClips(clipsToPlay, false);
+        scheduleClips(livePatternsToPlay, true);
+        useStore.setState({ lastScheduledSongTime: scheduleWindowEnd });
+    }
+}
+
+function mainLoop() {
+    if (!useStore.getState().isPlaying || !audioEngine) return;
+    
+    const audioCtxTime = audioEngine.getContext().currentTime;
+    let currentPlayheadTime = playStartOffset + (audioCtxTime - playStartTime);
+    useStore.setState({ currentPlayheadTime });
+
+    scheduler();
+}
+
+// --- End of Merged Playback Logic ---
+
 const loadJSZip = (): Promise<void> => {
     return new Promise((resolve, reject) => {
         if (typeof JSZip !== 'undefined') {
@@ -38,10 +224,9 @@ const loadJSZip = (): Promise<void> => {
 // --- STATE AND ACTIONS INTERFACES ---
 
 export type CenterView = 'mixer' | 'pianoRoll';
-export type AppearanceThemeKey = 'studio-dark' | 'studio-88' | 'cyber-neon' | 'minimalist-light' | 'blueprint' | 'ableton-grey' | 'nordic-night';
+export type AppearanceThemeKey = 'studio-dark' | 'studio-88' | 'cyber-neon' | 'minimalist-light' | 'blueprint' | 'ableton-grey' | 'nordic-night' | 'ghost';
 export type AccentThemeKey = 'studio-amber' | 'studio-orange' | 'cyber-magenta' | 'corporate-blue' | 'blueprint-white' | 'nordic-ice' | 'daw-cyan';
 export type LatencySetting = 'interactive' | 'balanced' | 'playback';
-
 
 interface AppState {
     preset: Preset;
@@ -90,12 +275,21 @@ interface AppState {
     audioEngineInstanceId: number;
     isAudioReady: boolean;
     licenseKey: string | null;
-    isViewerMode: boolean; // Start in viewer mode by default
+    isViewerMode: boolean;
     isLicenseModalOpen: boolean;
     isSpectator: boolean;
     lastNotificationTime: number;
     isShareJamOpen: boolean;
     showFullscreenPrompt: boolean;
+    // Merged from playbackStore
+    audioEngine: AudioEngine | null;
+    isPlaying: boolean;
+    currentStep: number;
+    totalStepsElapsed: number;
+    lastScheduledStepTime: number;
+    lastScheduledSongTime: number;
+    currentPlayheadTime: number;
+    midiClockPulseCount: number;
 }
 
 interface AppActions {
@@ -134,7 +328,7 @@ interface AppActions {
     clearTrackPattern: (trackId: number) => void;
     clearAllPatterns: () => void;
     startEuclideanMode: (trackId: number) => void;
-    updateEuclidean: (params: { pulses?: number; steps?: number; rotation?: number }) => void;
+    updateEuclidean: (params: { pulses?: number; steps?: number; rotation?: number; }) => void;
     applyEuclidean: () => void;
     cancelEuclidean: () => void;
     toggleQuickStart: (show?: boolean) => void;
@@ -143,7 +337,7 @@ interface AppActions {
     toggleStore: (open?: boolean) => void;
     toggleSettingsModal: (open?: boolean) => void;
     toggleManual: (open?: boolean) => void;
-    setMidiOutputs: (outputs: MIDIOutput[]) => void;
+    setMidiOutputs: (outputs: { id: string; name: string | undefined; }[]) => void;
     setAppearanceTheme: (theme: AppearanceThemeKey) => void;
     setAccentTheme: (theme: AccentThemeKey) => void;
     setUiPerformanceMode: (mode: UiPerformanceMode) => void;
@@ -160,6 +354,7 @@ interface AppActions {
     saveAllProjects: () => void;
     saveCurrentSessionAsNewProject: () => void;
     exportAudio: (options: { type: 'master' | 'stems-wet' | 'stems-dry'; source?: 'pattern' | 'song-loop' | 'song-full'; includeMasterFx?: boolean; }) => Promise<{ blob: Blob; name: string; }>;
+    renderJamVideoAudio: () => Promise<AudioBuffer>;
     installPack: (pack: ExpansionPack) => void;
     fetchCustomPacks: (url: string) => void;
     setCustomStoreUrl: (url: string) => void;
@@ -202,6 +397,12 @@ interface AppActions {
     addMidiCcLock: (cc?: number, value?: number) => void;
     updateMidiCcLock: (id: string, cc?: number, value?: number) => void;
     removeMidiCcLock: (id: string) => void;
+    // Merged from playbackStore
+    setAudioEngine: (engine: AudioEngine) => void;
+    togglePlay: () => void;
+    stop: () => void;
+    setPlayheadPosition: (time: number) => void;
+    handleMidiSyncMessage: (status: number) => void;
 }
 
 
@@ -254,12 +455,21 @@ const initialAppState: AppState = {
     audioEngineInstanceId: 0,
     isAudioReady: false,
     licenseKey: null,
-    isViewerMode: true, // Start in viewer mode by default
+    isViewerMode: true,
     isLicenseModalOpen: false,
     isSpectator: false,
     lastNotificationTime: 0,
     isShareJamOpen: false,
     showFullscreenPrompt: false,
+    // Merged from playbackStore
+    audioEngine: null,
+    isPlaying: false,
+    currentStep: -1,
+    totalStepsElapsed: 0,
+    lastScheduledStepTime: 0,
+    lastScheduledSongTime: 0,
+    currentPlayheadTime: 0,
+    midiClockPulseCount: 0,
 };
 
 async function renderPatternAudio(
@@ -320,7 +530,6 @@ async function renderPatternAudio(
             engine.createTrackChannels(preset.tracks);
             engine.updateBpm(preset.bpm);
 
-            // Configure master FX bus based on includeMasterFx
             if (options.includeMasterFx) {
                 engine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
                 engine.updateDelay(preset.globalFxParams.delay, preset.bpm);
@@ -333,14 +542,10 @@ async function renderPatternAudio(
                 engine.updateCharacter({ ...preset.globalFxParams.character, mix: 0 });
             }
 
-            // Master Filter and Compressor are always bypassed for stems.
             engine.updateMasterFilter({ type: 'lowpass', cutoff: 20000, resonance: 1 });
             engine.updateCompressor({ ...preset.globalFxParams.compressor, enabled: false, threshold: 0, makeup: 0 });
-
-            // Apply master volume to stems for level consistency.
             engine.updateMasterVolume(preset.globalFxParams.masterVolume);
 
-            // Mute all other tracks AND their sends
             preset.tracks.forEach(t => {
                 if (t.id !== track.id) {
                     engine.updateTrackVolume(t.id, 0);
@@ -431,258 +636,191 @@ async function renderSongAudio(
             }
         });
         
-        const buffer = await offlineCtx.startRendering();
-        const wavData = audioBufferToWav(buffer);
-        return { blob: new Blob([wavData], { type: 'audio/wav' }), name: `${preset.name}_song_master.wav` };
+        const renderedBuffer = await offlineCtx.startRendering();
+        const wavData = audioBufferToWav(renderedBuffer);
+        return { blob: new Blob([wavData], { type: 'audio/wav' }), name: `${preset.name}_master.wav` };
     };
 
-    const renderStems = async (): Promise<{ blob: Blob, name: string }> => {
+    const renderStems = async () => {
         await loadJSZip();
         const zip = new JSZip();
         const audibleTracks = preset.tracks.filter(track => soloedTrackId === null ? !mutedTracks.includes(track.id) : soloedTrackId === track.id);
-        
-        for (let i = 0; i < audibleTracks.length; i++) {
-            const track = audibleTracks[i];
-            onProgress(`Rendering stem (${i + 1}/${audibleTracks.length}): ${track.name}`);
-            const offlineCtx = new OfflineAudioContext(2, Math.ceil(totalDuration * sampleRate), sampleRate);
-            const engine = new AudioEngine(offlineCtx);
-            await engine.init();
-    
-            engine.createTrackChannels(preset.tracks);
-            engine.updateBpm(preset.bpm);
-    
-            if (options.includeMasterFx) {
-                engine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
-                engine.updateDelay(preset.globalFxParams.delay, preset.bpm);
-                engine.updateDrive(preset.globalFxParams.drive);
-                engine.updateCharacter(preset.globalFxParams.character);
-            } else {
-                engine.updateReverb({ ...preset.globalFxParams.reverb, mix: 0 }, preset.bpm);
-                engine.updateDelay({ ...preset.globalFxParams.delay, mix: 0 }, preset.bpm);
-                engine.updateDrive({ ...preset.globalFxParams.drive, mix: 0 });
-                engine.updateCharacter({ ...preset.globalFxParams.character, mix: 0 });
-            }
-            engine.updateMasterFilter({ type: 'lowpass', cutoff: 20000, resonance: 1 });
-            engine.updateCompressor({ ...preset.globalFxParams.compressor, enabled: false });
-            engine.updateMasterVolume(preset.globalFxParams.masterVolume);
-    
-            preset.tracks.forEach(t => {
-                if (t.id !== track.id) {
-                    engine.updateTrackVolume(t.id, 0);
-                    engine.updateTrackFxSend(t.id, 'reverb', 0);
-                    engine.updateTrackFxSend(t.id, 'delay', 0);
-                    engine.updateTrackFxSend(t.id, 'drive', 0);
-                } else {
-                    engine.updateTrackVolume(t.id, t.volume);
-                }
-            });
-    
-            (preset.arrangementClips || []).forEach(clip => {
-                if (clip.trackId !== track.id) return;
-                const clipTrack = preset.tracks.find(t => t.id === clip.trackId);
-                if (!clipTrack) return;
-                const pattern = clipTrack.patterns[clip.patternIndex!];
-                if (!pattern) return;
-    
-                const clipStartSeconds = clip.startTime * secondsPerBeat;
-                const clipDurationSeconds = clip.duration * secondsPerBeat;
+        const workerPool: Worker[] = [];
+        const maxWorkers = Math.max(1, (navigator.hardwareConcurrency || 4) - 2);
 
-                const firstStepInRenderWindow = Math.floor(Math.max(0, startTime - clipStartSeconds) / secondsPerStep);
-                const lastStepInRenderWindow = Math.ceil(Math.max(0, endTime - clipStartSeconds) / secondsPerStep);
-    
-                for (let step = firstStepInRenderWindow; step < lastStepInRenderWindow; step++) {
-                    const stepTimeInClip = step * secondsPerStep;
-                    if (stepTimeInClip >= clipDurationSeconds) continue;
-                    
-                    const absoluteTime = clipStartSeconds + stepTimeInClip;
-                    const timeInContext = absoluteTime - startTime;
-    
-                    if (timeInContext < 0 || timeInContext >= totalDuration) continue;
-    
-                    const patternStepIndex = step % clipTrack.patternLength;
-                    const stepState = pattern[patternStepIndex];
-                    
-                    const loopTimeForAutomation = (patternStepIndex % 64) * secondsPerStep;
-                    const loopCountForTrigs = Math.floor(step / track.patternLength);
-    
-                    engine.playStep(clipTrack, stepState, timeInContext, loopTimeForAutomation, loopCountForTrigs);
-                }
-            });
-    
-            const renderedBuffer = await offlineCtx.startRendering();
-            zip.file(`${track.name}_${options.includeMasterFx ? 'wet' : 'dry'}.wav`, audioBufferToWav(renderedBuffer));
+        for (let i = 0; i < maxWorkers; i++) {
+            workerPool.push(new Worker('./export.worker.js'));
         }
-    
+
+        const trackJobs = audibleTracks.map((track, index) => ({
+            jobId: index,
+            job: {
+                preset: deepClone(preset),
+                trackToRenderId: track.id,
+                sampleRate: sampleRate,
+                options: {
+                    ...options,
+                    startTime,
+                    endTime,
+                },
+                mutedTracks,
+                soloedTrackId,
+            }
+        }));
+
+        let jobsCompleted = 0;
+        await new Promise<void>((resolve, reject) => {
+            let jobIndex = 0;
+            const totalJobs = trackJobs.length;
+
+            const dispatchJob = (worker: Worker) => {
+                if (jobIndex >= totalJobs) return;
+                const job = trackJobs[jobIndex++];
+                onProgress(`Rendering stem (${jobIndex}/${totalJobs}): ${preset.tracks[job.job.trackToRenderId].name}`);
+                worker.postMessage(job);
+            };
+
+            workerPool.forEach(worker => {
+                worker.onmessage = (e) => {
+                    const { jobId, trackName, wavData, type, error } = e.data;
+                    if (type === 'error') {
+                        console.error(`Worker error for job ${jobId}:`, error);
+                        reject(new Error(error));
+                        return;
+                    }
+
+                    if (type === 'stem-done') {
+                        zip.file(`${trackName}_${options.includeMasterFx ? 'wet' : 'dry'}.wav`, wavData);
+                        jobsCompleted++;
+                        if (jobsCompleted === totalJobs) {
+                            resolve();
+                        } else {
+                            dispatchJob(worker);
+                        }
+                    }
+                };
+                worker.onerror = (e) => {
+                    console.error("Worker error:", e);
+                    reject(e);
+                };
+                dispatchJob(worker);
+            });
+        });
+        
+        workerPool.forEach(worker => worker.terminate());
         onProgress('Compressing files...');
         const blob = await zip.generateAsync({ type: 'blob' });
-        return { blob, name: `${preset.name}_song_stems_${options.includeMasterFx ? 'wet' : 'dry'}.zip` };
+        return { blob, name: `${preset.name}_stems_${options.includeMasterFx ? 'wet' : 'dry'}.zip` };
     };
 
     if (options.type === 'master') {
-        return renderMaster();
+        return await renderMaster();
     } else {
-        return renderStems();
+        return await renderStems();
     }
 }
-
-// --- ZUSTAND STORE ---
 
 export const useStore = create<AppState & AppActions>()(
     subscribeWithSelector(
         immer((set, get) => ({
-                ...initialAppState,
-
-                // --- INITIALIZATION ---
-                init: () => {
-                    try {
-                        // --- Defaults ---
-                        const factoryProjects = deepClone(INITIAL_PRESET_LIBRARY);
-                        const factoryInstrumentPresets = deepClone(Object.values(INITIAL_INSTRUMENT_PRESET_LIBRARY).flat());
-                
-                        let loadedState: Partial<AppState> = {
-                            presets: factoryProjects,
-                            instrumentPresets: factoryInstrumentPresets,
-                            appearanceTheme: 'studio-dark',
-                            accentTheme: 'studio-amber',
-                            customStoreUrl: '',
-                        };
-                
-                        // --- Load from localStorage ---
-                        const storedStateJSON = localStorage.getItem('fm8r-state');
-                        if (storedStateJSON) {
-                            const parsed = JSON.parse(storedStateJSON);
-                
-                            const factoryProjectNames = new Set(factoryProjects.map(p => p.name));
-                            const userProjects = (parsed.presets || []).filter((p: Preset) => {
-                                return p && p.name && !factoryProjectNames.has(p.name) && Array.isArray(p.tracks);
-                            });
-                            loadedState.presets = [...factoryProjects, ...userProjects];
-                
-                            const factoryInstrumentPresetKeys = new Set(factoryInstrumentPresets.map(p => `${p.type}::${p.name}`));
-                            const userInstrumentPresets = (parsed.instrumentPresets || []).filter((p: InstrumentPreset) => 
-                                p && p.type && p.name && !factoryInstrumentPresetKeys.has(`${p.type}::${p.name}`)
-                            );
-                            loadedState.instrumentPresets = [...factoryInstrumentPresets, ...userInstrumentPresets];
+            ...initialAppState,
+            init: () => {
+                 try {
+                    const savedState = localStorage.getItem('fm8r-state');
+                    if (savedState) {
+                        const parsed = JSON.parse(savedState);
+                        set(state => {
+                            state.presets = parsed.presets || INITIAL_PRESET_LIBRARY;
                             
-                            loadedState.appearanceTheme = parsed.appearanceTheme || 'studio-dark';
-                            loadedState.accentTheme = parsed.accentTheme || 'studio-amber';
-                            loadedState.customStoreUrl = parsed.customStoreUrl || '';
-                        }
-                
-                        // --- Determine Initial Project and Viewer Mode ---
-                        let initialPreset = loadedState.presets!.find(p => p.name === "Blank Project") || deepClone(DEMO_DEFAULT_PROJECT);
-                        let isViewer = true;
-                        const storedKey = localStorage.getItem('fm8r_license_key');
-                        if (storedKey) {
-                            // A simplified check, setLicenseKey will do the full validation
-                            isViewer = false;
-                            initialPreset = loadedState.presets!.find(p => p.name === "New Project") || deepClone(LICENSED_DEFAULT_PROJECT);
-                        }
-                
-                        // --- Set base state ---
-                        set({
-                            ...get(), // Keep some state like modals etc if they were open
-                            ...loadedState,
-                            preset: initialPreset,
-                            isViewerMode: isViewer,
-                        });
-                
-                        // --- Post-set updates ---
-                        if (storedKey) {
-                            get().setLicenseKey(storedKey, true); // Re-validate silently
-                        }
-                        
-                        // --- Handle Welcome Screen ---
-                        const welcomeDismissed = localStorage.getItem('fm8r-welcome-dismissed');
-                        set({ showWelcomeScreen: !welcomeDismissed });
-                        
-                        // --- Handle URL Project Loading (overrides everything) ---
-                        const urlParams = new URLSearchParams(window.location.search);
-                        let projectZip = urlParams.get('jam');
-                        if (!projectZip && window.location.hash && window.location.hash.startsWith('#jam=')) {
-                            projectZip = window.location.hash.substring(5);
-                        }
-                
-                        if (projectZip) {
-                            set({ isSpectator: true, showWelcomeScreen: false });
-                            loadJSZip().then(() => {
-                                const zip = new JSZip();
-                                const fromUrlSafeBase64 = (s: string) => s.replace(/-/g, '+').replace(/_/g, '/');
-                                zip.loadAsync(fromUrlSafeBase64(projectZip!), { base64: true }).then((loadedZip: any) => {
-                                    const presetFile = loadedZip.file("p.json");
-                                    if (presetFile) return presetFile.async("string");
-                                    throw new Error("Project data not found in link.");
-                                }).then((presetJson: string) => {
-                                    const loadedPreset = JSON.parse(presetJson);
-                                    const baseProject = get().isViewerMode ? deepClone(DEMO_DEFAULT_PROJECT) : deepClone(LICENSED_DEFAULT_PROJECT);
-                                    if (loadedPreset.tracks) loadedPreset.tracks = loadedPreset.tracks.filter((t: Track) => t);
-                                    const mergedPreset = deepMerge(baseProject, loadedPreset);
-                                    mergedPreset.name = loadedPreset.name;
-                                    get().loadPreset(mergedPreset); // Use loadPreset to ensure audio engine is updated
-                                }).catch((err: any) => {
-                                    console.error("Failed to load shared jam:", err);
-                                    get().addNotification({ type: 'error', message: 'Could not load shared jam link.' });
-                                });
-                            });
-                        }
-                        
-                        // --- Load custom packs if URL is set ---
-                        const storedUrl = get().customStoreUrl;
-                        if (storedUrl) {
-                            get().fetchCustomPacks(storedUrl);
-                        }
-                
-                    } catch (e) {
-                        console.error("Critical error during app initialization:", e);
-                        // Fallback to a completely default state
-                        set({ 
-                            ...initialAppState, 
-                            presets: deepClone(INITIAL_PRESET_LIBRARY),
-                            instrumentPresets: deepClone(Object.values(INITIAL_INSTRUMENT_PRESET_LIBRARY).flat()),
-                            preset: deepClone(DEMO_DEFAULT_PROJECT),
-                            isViewerMode: true,
-                            showWelcomeScreen: true,
-                        });
-                        get().addNotification({ type: 'error', message: 'App failed to load. Resetting to default state.' });
-                    }
-                },
-                
-                startAudio: async () => {
-                    if (!audioEngine) {
-                       await get().reinitializeAudio();
-
-                        // Metering loop
-                        setInterval(() => {
-                            if (audioEngine) {
-                                useVUMeterStore.setState({ 
-                                    audioLevels: audioEngine.getTrackLevels(),
-                                    masterLevel: audioEngine.getMasterLevel(),
-                                });
+                            let instrumentPresets = parsed.instrumentPresets || INITIAL_INSTRUMENT_PRESET_LIBRARY;
+                            // MIGRATION: Check if instrumentPresets is in the old object format and fix it.
+                            if (instrumentPresets && !Array.isArray(instrumentPresets) && typeof instrumentPresets === 'object') {
+                                console.warn("Migrating old instrument preset format from localStorage.");
+                                instrumentPresets = Object.values(instrumentPresets).flat();
                             }
-                        }, 50);
+                            state.instrumentPresets = instrumentPresets;
+
+                            state.installedPacks = parsed.installedPacks || [];
+                            state.customStoreUrl = parsed.customStoreUrl || '';
+                            state.appearanceTheme = parsed.appearanceTheme || 'studio-dark';
+                            state.accentTheme = parsed.accentTheme || 'studio-amber';
+                            state.uiPerformanceMode = parsed.uiPerformanceMode || 'high';
+                            state.latencySetting = parsed.latencySetting || 'interactive';
+                            state.midiSyncSource = parsed.midiSyncSource || 'internal';
+                            state.midiSyncOutput = parsed.midiSyncOutput || 'none';
+                        });
+                    } else {
+                        set(state => {
+                            state.presets = INITIAL_PRESET_LIBRARY;
+                            state.instrumentPresets = INITIAL_INSTRUMENT_PRESET_LIBRARY;
+                        });
                     }
-                },
-                
-                reinitializeAudio: async () => {
-                    set({ isAudioReady: false });
-                    usePlaybackStore.getState().stop();
-                    if (audioEngine) {
-                        await audioEngine.close();
+                    
+                    const licenseKey = localStorage.getItem('fm8r-license-key');
+                    if (licenseKey) {
+                        get().setLicenseKey(licenseKey, true);
+                    } else {
+                        set({ preset: deepClone(DEMO_DEFAULT_PROJECT), isViewerMode: true });
                     }
-                
-                    const { selectedAudioOutputId, latencySetting, preset } = get();
-                
-                    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({
-                        sampleRate: 44100,
-                        ...(selectedAudioOutputId !== 'default' && { sinkId: selectedAudioOutputId }),
-                        latencyHint: latencySetting,
+                    
+                    const dontShowWelcome = localStorage.getItem('fm8r-hide-welcome') === 'true';
+                    const fullscreenPromptDismissed = localStorage.getItem('fm8r-fullscreen-prompt-dismissed') === 'true';
+
+                    set({ showWelcomeScreen: !dontShowWelcome });
+                    if (dontShowWelcome && !fullscreenPromptDismissed) {
+                        setTimeout(() => set({ showFullscreenPrompt: true }), 1500);
+                    }
+
+                    const params = new URLSearchParams(window.location.search);
+                    if (params.get('spectator_mode') === 'true') {
+                        set({ isSpectator: true, isViewerMode: true });
+                    }
+                    
+                    if (params.has('jam')) {
+                         set({ showWelcomeScreen: true });
+                    }
+
+                } catch (error) {
+                    console.error("Failed to load saved state:", error);
+                    set({ presets: INITIAL_PRESET_LIBRARY, instrumentPresets: INITIAL_INSTRUMENT_PRESET_LIBRARY });
+                }
+
+                const handleResize = () => set({ isDesktop: window.innerWidth > 768 });
+                window.addEventListener('resize', handleResize);
+                handleResize();
+            },
+            hideWelcomeScreen: (dontShowAgain) => {
+                if (dontShowAgain) {
+                    localStorage.setItem('fm8r-hide-welcome', 'true');
+                }
+                set({ showWelcomeScreen: false });
+                if (!localStorage.getItem('fm8r-fullscreen-prompt-dismissed')) {
+                    setTimeout(() => set({ showFullscreenPrompt: true }), 1500);
+                }
+            },
+            toggleFullscreenPrompt: (show) => {
+                set({ showFullscreenPrompt: show ?? !get().showFullscreenPrompt });
+            },
+            panic: () => {
+                get().stop();
+                get().startAudio();
+            },
+            startAudio: async () => {
+                if (audioEngine) {
+                    await audioEngine.close();
+                }
+                try {
+                    const latencyHint = get().latencySetting;
+                    const context = new (window.AudioContext || (window as any).webkitAudioContext)({
+                        latencyHint,
+                        sampleRate: 44100
                     });
-                
-                    audioEngine = new AudioEngine(audioCtx);
-                    usePlaybackStore.getState().setAudioEngine(audioEngine);
-                    await audioEngine.init();
-                
-                    // Reload preset into new engine
+                    const newEngine = new AudioEngine(context);
+                    await newEngine.init();
+                    
+                    get().setAudioEngine(newEngine);
+
+                    const { preset, selectedAudioOutputId } = get();
                     audioEngine.createTrackChannels(preset.tracks);
                     audioEngine.updateBpm(preset.bpm);
                     audioEngine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
@@ -692,1342 +830,1344 @@ export const useStore = create<AppState & AppActions>()(
                     audioEngine.updateMasterFilter(preset.globalFxParams.masterFilter);
                     audioEngine.updateCompressor(preset.globalFxParams.compressor);
                     audioEngine.updateMasterVolume(preset.globalFxParams.masterVolume);
-
-                    set(state => ({ 
-                        audioEngineInstanceId: state.audioEngineInstanceId + 1,
-                        isAudioReady: true,
-                    }));
-                },
-
-                hideWelcomeScreen: (dontShowAgain) => {
-                    if (dontShowAgain) {
-                        // FIX: localStorage.setItem requires a string value.
-                        localStorage.setItem('fm8r-welcome-dismissed', 'true');
+                    
+                    if (context instanceof AudioContext && 'setSinkId' in context) {
+                        (context as any).setSinkId(selectedAudioOutputId);
                     }
-                    const shouldShowQuickStart = !localStorage.getItem('fm8r-quickstart-finished');
-                    set({ showWelcomeScreen: false, showQuickStart: shouldShowQuickStart });
-                
-                    // If the quick start guide is not going to be shown (because it's already finished),
-                    // then we check if we should show the fullscreen prompt.
-                    if (!shouldShowQuickStart) {
-                        const fullscreenPromptDismissed = localStorage.getItem('fm8r-fullscreen-prompt-dismissed');
-                        if (!fullscreenPromptDismissed) {
-                            set({ showFullscreenPrompt: true });
-                        }
-                    }
-                
-                    get().startAudio();
-                },
-                
-                // --- TRANSPORT (now delegates to playbackStore) ---
-                panic: () => {
-                    audioEngine?.stopAll();
-                    setTimeout(async () => {
-                        const { isPlaying, currentStep } = usePlaybackStore.getState();
-                        if (isPlaying) {
-                            usePlaybackStore.setState({ currentStep });
-                        }
-                    }, 100);
-                },
-
-                setBpm: (bpm) => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    set(state => { state.preset.bpm = bpm; });
-                    audioEngine?.updateBpm(bpm);
-                },
-                
-                // --- UI & SELECTION ---
-                selectTrack: (trackId) => {
-                    if (get().isSpectator) { return; } // Silently fail in spectator mode
-                    if (get().isViewerMode && trackId >= 3) {
-                        get().triggerViewerModeInteraction();
-                        return;
-                    }
-                    set({ selectedTrackId: trackId, centerView: 'mixer', selectedPLockStep: null });
-                },
-                renameTrack: (trackId, newName) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        const trimmedName = newName.trim();
-                        if (track && trimmedName) {
-                            track.name = trimmedName;
-                        }
+                    
+                    set(state => { 
+                        state.isAudioReady = true;
+                        state.audioEngineInstanceId = state.audioEngineInstanceId + 1;
                     });
-                },
-                toggleMute: (trackId) => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const muted = new Set(get().mutedTracks);
-                    if (muted.has(trackId)) muted.delete(trackId);
-                    else muted.add(trackId);
-                    set({ mutedTracks: Array.from(muted) });
-                },
-                toggleSolo: (trackId) => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set({ soloedTrackId: get().soloedTrackId === trackId ? null : trackId })
-                },
-                togglePLockMode: () => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set({ isPLockModeActive: !get().isPLockModeActive, selectedPLockStep: null })
-                },
-                
-                handleStepClick: (trackId, stepIndex) => {
-                    const { isPLockModeActive, setStepProperty, isSpectator, isViewerMode } = get();
-                    if (isSpectator) {
-                        get().triggerViewerModeInteraction();
-                        return;
-                    }
-                    if (isViewerMode && trackId >= 3) {
-                        get().triggerViewerModeInteraction();
-                        return;
+                    
+                    const params = new URLSearchParams(window.location.search);
+                    if (params.has('jam')) {
+                        try {
+                            const compressedData = params.get('jam');
+                            if (compressedData) {
+                                await loadJSZip();
+                                const zip = new JSZip();
+                                const decodedData = atob(compressedData.replace(/-/g, '+').replace(/_/g, '/'));
+                                const arrayBuffer = Uint8Array.from(decodedData, c => c.charCodeAt(0));
+                                const unzipped = await zip.loadAsync(arrayBuffer);
+                                const projectFile = unzipped.file('jam.fm8r-project');
+                                if (projectFile) {
+                                    const projectJson = await projectFile.async('string');
+                                    const newPreset = JSON.parse(projectJson);
+                                    get().loadPreset(newPreset);
+                                    get().addNotification({ type: 'success', message: `Jam by ${newPreset.artist || 'Anonymous'} loaded!` });
+                                }
+                            }
+                        } catch (e) {
+                            console.error("Failed to load shared jam:", e);
+                            get().addNotification({ type: 'error', message: 'Could not load shared jam data.' });
+                        } finally {
+                            window.history.replaceState({}, document.title, window.location.pathname);
+                        }
                     }
 
-                    if (isPLockModeActive) {
-                        set({ selectedPLockStep: { trackId, stepIndex } });
+                } catch (error) {
+                    console.error("Failed to initialize AudioEngine:", error);
+                    set({ isAudioReady: false });
+                }
+            },
+            reinitializeAudio: async () => {
+                const wasPlaying = get().isPlaying;
+                if (wasPlaying) get().stop();
+                await get().startAudio();
+                if (wasPlaying) get().togglePlay();
+            },
+            setBpm: (bpm) => {
+                set(state => { state.preset.bpm = bpm; });
+                if (audioEngine) audioEngine.updateBpm(bpm);
+            },
+            selectTrack: (trackId) => {
+                set({ selectedTrackId: trackId, selectedPLockStep: null });
+            },
+            renameTrack: (trackId, newName) => {
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) track.name = newName;
+                });
+            },
+            toggleMute: (trackId) => {
+                set(state => {
+                    const index = state.mutedTracks.indexOf(trackId);
+                    if (index > -1) {
+                        state.mutedTracks.splice(index, 1);
                     } else {
-                        const track = get().preset.tracks.find(t => t.id === trackId);
-                        if (!track) return;
+                        state.mutedTracks.push(trackId);
+                    }
+                    state.soloedTrackId = null;
+                });
+            },
+            toggleSolo: (trackId) => {
+                set(state => {
+                    if (state.soloedTrackId === trackId) {
+                        state.soloedTrackId = null;
+                    } else {
+                        state.soloedTrackId = trackId;
+                        state.mutedTracks = [];
+                    }
+                });
+            },
+            togglePLockMode: () => {
+                set(state => { 
+                    state.isPLockModeActive = !state.isPLockModeActive;
+                    if (!state.isPLockModeActive) {
+                        state.selectedPLockStep = null;
+                    }
+                });
+            },
+            handleStepClick: (trackId, stepIndex) => {
+                const { isPLockModeActive, selectedPLockStep, setStepProperty } = get();
+                if (isPLockModeActive) {
+                    if (selectedPLockStep?.trackId === trackId && selectedPLockStep?.stepIndex === stepIndex) {
+                        set({ selectedPLockStep: null });
+                    } else {
+                        set({ selectedPLockStep: { trackId, stepIndex } });
+                    }
+                } else {
+                    const track = get().preset.tracks.find(t => t.id === trackId);
+                    if (track) {
                         const step = track.patterns[track.activePatternIndex][stepIndex];
                         setStepProperty(trackId, stepIndex, 'active', !step.active);
                     }
-                },
-                
-                _recordAutomationPoint: (state, trackId, path, value) => {
-                    const { automationRecording, overwriteTouchedParams } = state;
-                    if (!automationRecording || automationRecording.trackId !== trackId) return;
-                
-                    const track = state.preset.tracks.find(t => t.id === trackId);
-                    if (!track) return;
-                    
-                    if (automationRecording.mode === 'overwrite' && !overwriteTouchedParams.has(path)) {
-                        track.automation[path] = [];
-                        overwriteTouchedParams.add(path);
-                    }
-                    
-                    if (!track.automation[path]) track.automation[path] = [];
-                
-                    const { currentPlayheadTime } = usePlaybackStore.getState();
-                    const secondsPerBeat = 60 / state.preset.bpm;
-                    const timeInBeats = currentPlayheadTime / secondsPerBeat;
-                    
-                    const points = track.automation[path];
-                    if (points.length > 0 && points[points.length - 1].value === value) return;
-                
-                    points.push({ time: timeInBeats, value });
-                },
-
-                // --- PARAMETER & STATE CHANGES ---
-                setParam: (path, value) => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
+                }
+            },
+            setParam: (path, value) => {
+                const { selectedTrackId, selectedPLockStep } = get();
+                if (selectedPLockStep) {
                     set(state => {
-                        const { selectedTrackId, selectedPLockStep, isViewerMode } = state;
-                        const activeTrackId = selectedPLockStep?.trackId ?? selectedTrackId;
-                        if (isViewerMode && activeTrackId >= 3) {
-                            get().triggerViewerModeInteraction();
-                            return;
-                        }
-                
-                        const track = state.preset.tracks.find(t => t.id === activeTrackId);
-                        if (!track) return;
-                
-                        // If params are empty, populate with defaults before mutating.
-                        if ((!track.params || Object.keys(track.params).length === 0) && track.type !== 'midi') {
-                            track.params = getInitialParamsForType(track.type);
-                        }
-                
-                        const setDeepMutate = (obj: any, p: string, v: any) => {
-                            const keys = p.split('.');
-                            let current = obj;
-                            for (let i = 0; i < keys.length - 1; i++) {
-                                if (current[keys[i]] === undefined || typeof current[keys[i]] !== 'object' || current[keys[i]] === null) {
-                                    current[keys[i]] = {};
-                                }
-                                current = current[keys[i]];
-                            }
-                            current[keys[keys.length - 1]] = v;
-                        };
-                
-                        if (selectedPLockStep && activeTrackId === selectedPLockStep.trackId) {
-                            const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
-                            const paramKey = `${track.type}Params` as keyof PLocks;
+                        const track = state.preset.tracks.find(t => t.id === selectedPLockStep.trackId);
+                        const step = track?.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                        if (step) {
                             if (!step.pLocks) step.pLocks = {};
-                            if (!(step.pLocks as any)[paramKey]) (step.pLocks as any)[paramKey] = {};
-                            setDeepMutate((step.pLocks as any)[paramKey], path, value);
-                        } else {
-                            // If not a P-Lock, it's a base parameter change.
-                            setDeepMutate(track.params, path, value);
+                            const pLockPath = `${track!.type}Params.${path}`;
+                            setDeep(step.pLocks, pLockPath, value);
+                        }
+                    });
+                } else {
+                    get().setParamForTrack(selectedTrackId, path, value);
+                }
+            },
+             _recordAutomationPoint: (state, trackId, path, value) => {
+                const track = state.preset.tracks.find(t => t.id === trackId);
+                const { currentPlayheadTime } = get();
+                const secondsPerBeat = 60 / state.preset.bpm;
+                const timeInBeats = currentPlayheadTime / secondsPerBeat;
                 
-                            if (state.automationRecording?.trackId === activeTrackId) {
-                                state._recordAutomationPoint(state, activeTrackId, `params.${path}`, value);
-                            }
+                if (track) {
+                    if (!track.automation[path]) track.automation[path] = [];
+
+                    if (state.automationRecording?.mode === 'overwrite' && !state.overwriteTouchedParams.has(path)) {
+                        track.automation[path] = [];
+                        state.overwriteTouchedParams.add(path);
+                    }
+                    
+                    track.automation[path].push({ time: timeInBeats, value });
+                    const points = track.automation[path];
+                    if (points.length > 2) {
+                        const last = points[points.length - 1];
+                        const secondLast = points[points.length - 2];
+                        const thirdLast = points[points.length - 3];
+                        if (last.time - secondLast.time < 0.05) {
+                           const slope1 = (last.value - thirdLast.value) / (last.time - thirdLast.time);
+                           const slope2 = (secondLast.value - thirdLast.value) / (secondLast.time - thirdLast.time);
+                           if (Math.abs(slope1 - slope2) < 0.01) {
+                               points.splice(points.length - 2, 1);
+                           }
                         }
-                    });
-                },
-                setParamForTrack: (trackId, path, value) => {
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (track) {
-                            const keys = path.split('.');
-                            let current: any = track.params;
-                            for (let i = 0; i < keys.length - 1; i++) {
-                                if (current[keys[i]] === undefined) current[keys[i]] = {};
-                                current = current[keys[i]];
-                            }
-                            current[keys[keys.length - 1]] = value;
+                    }
+                }
+            },
+            setParamForTrack: (trackId, path, value) => {
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        setDeep(track.params, path, value);
+                        if (state.automationRecording?.trackId === trackId) {
+                            get()._recordAutomationPoint(state, trackId, `params.${path}`, value);
                         }
-                    });
-                },
-                handleMidiMessage: (mapping: MidiMapping, value: number, command: number) => {
-                    if (get().isSpectator) {
-                        get().triggerViewerModeInteraction();
-                        return;
                     }
-
-                    const { setParam, setTrackVolume, setTrackPan, setFxSend, selectTrack, toggleMute, toggleSolo, setMainView } = get();
-                    const { target } = mapping;
-                    const { path, type, range } = target;
-
-                    // Ignore note off for buttons to avoid double triggering
-                    if (type === 'button' && command === 8) {
-                        return;
+                });
+            },
+            handleMidiMessage: (mapping, value, command) => {
+                const { target } = mapping;
+                const { 
+                    setTrackVolume, setTrackPan, setFxSend, setParamForTrack, 
+                    setGlobalFxParam, setBpm, toggleMute, toggleSolo, selectTrack,
+                    togglePlay, stop, setMainView, handleStepClick 
+                } = get();
+                
+                if (target.type === 'knob') {
+                    const { min, max } = target.range || { min: 0, max: 127 };
+                    const normalizedValue = min + (value / 127) * (max - min);
+                    
+                    if(target.path.startsWith('tracks.')) {
+                        const parts = target.path.split('.');
+                        const trackId = parseInt(parts[1]);
+                        const param = parts[2];
+                        if(param === 'volume') setTrackVolume(trackId, normalizedValue);
+                        else if(param === 'pan') setTrackPan(trackId, normalizedValue);
+                        else if(param === 'fxSends') setFxSend(trackId, parts[3] as keyof FXSends, normalizedValue);
+                        else if (parts.length > 3) {
+                             setParamForTrack(trackId, parts.slice(3).join('.'), normalizedValue);
+                        }
+                    } else if (target.path.startsWith('globalFx.')) {
+                        const parts = target.path.split('.');
+                        const fx = parts[1] as keyof GlobalFXParams;
+                        const param = parts[2];
+                        setGlobalFxParam(fx, param, normalizedValue);
+                    } else if (target.path === 'preset.bpm') {
+                        setBpm(Math.round(normalizedValue));
                     }
+                } else if (target.type === 'button') {
+                    if (command === 8 || value === 0) return;
 
-                    let normalizedValue = value / 127;
-
-                    // Handle transport controls
-                    if (path.startsWith('transport.')) {
-                        const { togglePlay, stop } = usePlaybackStore.getState();
-                        if (path === 'transport.play') togglePlay();
-                        else if (path === 'transport.stop') stop();
-                        else if (path === 'transport.view.pattern') setMainView('pattern');
-                        else if (path === 'transport.view.song') setMainView('song');
-                        return;
-                    }
-
-                    // Handle track mutes/solos/selects
-                    const trackMatch = path.match(/^tracks\.(\d+)\.(mute|solo|select)$/);
-                    if (trackMatch) {
-                        const trackId = parseInt(trackMatch[1], 10);
-                        const action = trackMatch[2];
+                    if(target.path.startsWith('tracks.')) {
+                        const parts = target.path.split('.');
+                        const trackId = parseInt(parts[1]);
+                        const action = parts[2];
                         if (action === 'mute') toggleMute(trackId);
                         else if (action === 'solo') toggleSolo(trackId);
                         else if (action === 'select') selectTrack(trackId);
-                        return;
+                    } else if (target.path.startsWith('transport.')) {
+                         const action = target.path.split('.')[1];
+                         if (action === 'play') togglePlay();
+                         else if (action === 'stop') stop();
+                         else if (action === 'view') setMainView(target.path.split('.')[2] as MainView);
+                    } else if (target.path.startsWith('sequencer.step.')) {
+                        const parts = target.path.split('.');
+                        const trackId = parseInt(parts[2]);
+                        const stepIndex = parseInt(parts[3]);
+                        handleStepClick(trackId, stepIndex);
                     }
-
-                    let finalValue: any = normalizedValue;
-                    if (range) {
-                        finalValue = range.min + (normalizedValue * (range.max - range.min));
-                    }
-
-                    const parts = path.split('.');
-
-                    if (parts[0] === 'tracks') {
-                        const trackId = parseInt(parts[1], 10);
-                        if (get().isViewerMode && trackId >= 3) {
-                            get().triggerViewerModeInteraction();
-                            return;
-                        }
-                        const param = parts[2];
-                        if (param === 'volume') setTrackVolume(trackId, finalValue);
-                        else if (param === 'pan') setTrackPan(trackId, finalValue);
-                        else if (param === 'fxSends') {
-                            const send = parts[3] as keyof FXSends;
-                            setFxSend(trackId, send, finalValue);
-                        } else if (param === 'params') {
-                            const paramPath = parts.slice(3).join('.');
-                            get().setParamForTrack(trackId, paramPath, finalValue);
-                        }
-                    } else if (parts[0] === 'globalFx') {
-                        const fx = parts[1] as keyof GlobalFXParams;
-                        const param = parts[2];
-                        get().setGlobalFxParam(fx, param, finalValue);
-                    } else if (parts[0] === 'preset' && parts[1] === 'bpm') {
-                        get().setBpm(finalValue);
-                    }
-                },
-                setMidiOutParam: (key, value) => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const { selectedTrackId, selectedPLockStep, isViewerMode } = state;
-                        const activeTrackId = selectedPLockStep?.trackId ?? selectedTrackId;
-                        if (isViewerMode && activeTrackId >= 3) {
-                            get().triggerViewerModeInteraction();
-                            return;
-                        }
-
-                        const track = state.preset.tracks.find(t => t.id === activeTrackId);
-                        if (!track || track.type !== 'midi') return;
-
-                        if (selectedPLockStep && activeTrackId === selectedPLockStep.trackId) {
-                            const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                }
+            },
+            setMidiOutParam: (key, value) => {
+                const { selectedTrackId, selectedPLockStep } = get();
+                set(state => {
+                    const trackId = selectedPLockStep ? selectedPLockStep.trackId : selectedTrackId;
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (!track || track.type !== 'midi') return;
+                    
+                    if (selectedPLockStep) {
+                        const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                        if (step) {
                             if (!step.pLocks) step.pLocks = {};
                             if (!step.pLocks.midiOutParams) step.pLocks.midiOutParams = {};
-                            (step.pLocks.midiOutParams as any)[key] = value;
-                        } else {
-                            if (!track.midiOut) track.midiOut = { deviceId: null, channel: 1 };
-                            (track.midiOut as any)[key] = value;
-
-                            if (state.automationRecording?.trackId === activeTrackId) {
-                                state._recordAutomationPoint(state, activeTrackId, `midiOut.${key}`, value);
-                            }
+                            step.pLocks.midiOutParams[key] = value;
                         }
-                    });
-                },
-                setTrackVolume: (trackId, volume) => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    
-                    set(state => {
-                        if (state.selectedPLockStep?.trackId === trackId) {
-                            const track = state.preset.tracks.find(t => t.id === trackId);
-                            if (track) {
-                                const step = track.patterns[track.activePatternIndex][state.selectedPLockStep.stepIndex];
-                                if (!step.pLocks) step.pLocks = {};
-                                step.pLocks.volume = volume;
-                            }
-                        } else {
-                            const track = state.preset.tracks.find(t => t.id === trackId);
-                            if (track) track.volume = volume;
-                            audioEngine?.updateTrackVolume(trackId, volume);
-                            if (state.automationRecording?.trackId === trackId) {
-                                state._recordAutomationPoint(state, trackId, 'volume', volume);
-                            }
-                        }
-                    });
-                },
-                setTrackPan: (trackId, pan) => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    
-                    set(state => {
-                         if (state.selectedPLockStep?.trackId === trackId) {
-                            const track = state.preset.tracks.find(t => t.id === trackId);
-                            if (track) {
-                                const step = track.patterns[track.activePatternIndex][state.selectedPLockStep.stepIndex];
-                                if (!step.pLocks) step.pLocks = {};
-                                step.pLocks.pan = pan;
-                            }
-                        } else {
-                            const track = state.preset.tracks.find(t => t.id === trackId);
-                            if (track) track.pan = pan;
-                            audioEngine?.updateTrackPan(trackId, pan);
-                             if (state.automationRecording?.trackId === trackId) {
-                                state._recordAutomationPoint(state, trackId, 'pan', pan);
-                            }
-                        }
-                    });
-                },
-                setFxSend: (trackId, fx, value) => {
-                     if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                     if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    
-                    set(state => {
-                        if (state.selectedPLockStep?.trackId === trackId) {
-                            const track = state.preset.tracks.find(t => t.id === trackId);
-                            if (track) {
-                                const step = track.patterns[track.activePatternIndex][state.selectedPLockStep.stepIndex];
-                                if (!step.pLocks) step.pLocks = {};
-                                if (!step.pLocks.fxSends) step.pLocks.fxSends = {};
-                                step.pLocks.fxSends[fx] = value;
-                            }
-                        } else {
-                            const track = state.preset.tracks.find(t => t.id === trackId);
-                            if (track) track.fxSends[fx] = value;
-                            audioEngine?.updateTrackFxSend(trackId, fx, value);
-                            if (state.automationRecording?.trackId === trackId) {
-                                state._recordAutomationPoint(state, trackId, `fxSends.${fx}`, value);
-                            }
-                        }
-                    });
-                },
-                setGlobalFxParam: (fx, param, value) => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const paramPath = `${fx}.${param}`;
-                        setDeep(state.preset.globalFxParams, paramPath, value);
-
-                        const currentBpm = state.preset.bpm;
-                        if (fx === 'reverb') audioEngine?.updateReverb(state.preset.globalFxParams.reverb, currentBpm);
-                        if (fx === 'delay') audioEngine?.updateDelay(state.preset.globalFxParams.delay, currentBpm);
-                        if (fx === 'drive') audioEngine?.updateDrive(state.preset.globalFxParams.drive);
-                        if (fx === 'character') audioEngine?.updateCharacter(state.preset.globalFxParams.character);
-                        if (fx === 'masterFilter') audioEngine?.updateMasterFilter(state.preset.globalFxParams.masterFilter);
-                        if (fx === 'compressor') audioEngine?.updateCompressor(state.preset.globalFxParams.compressor);
-                    });
-                },
-                setMasterVolume: (volume) => {
-                     if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    set(state => { state.preset.globalFxParams.masterVolume = volume; });
-                    audioEngine?.updateMasterVolume(volume);
-                },
-                setStepProperty: (trackId, stepIndex, prop, value) => {
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (track) {
-                            const step = track.patterns[track.activePatternIndex][stepIndex];
-                            if (step) {
-                                (step as any)[prop] = value;
-                            }
-                        }
-                    });
-                },
-
-                // --- AUDIO ACTIONS ---
-                auditionNote: (note, velocity = 0.8) => {
-                    const { selectedTrackId, isViewerMode } = get();
-                     if (isViewerMode && selectedTrackId >= 3) {
-                        get().triggerViewerModeInteraction();
-                        return;
+                    } else {
+                        if (!track.midiOut) track.midiOut = { deviceId: null, channel: 1 };
+                        track.midiOut[key] = value;
                     }
-
-                    const track = get().preset.tracks.find(t => t.id === selectedTrackId);
-                    if (track && audioEngine) {
-                        audioEngine.playNote(track, note, velocity);
-                    }
-                },
-                
-                // --- PATTERN & GENERATIVE ACTIONS ---
-                setPatternLength: (trackId, length) => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
+                });
+            },
+            setTrackVolume: (trackId, volume) => {
+                set(state => {
+                    const { selectedPLockStep } = state;
+                    if (selectedPLockStep?.trackId === trackId) {
+                        const step = state.preset.tracks[trackId].patterns[state.preset.tracks[trackId].activePatternIndex][selectedPLockStep.stepIndex];
+                        if (!step.pLocks) step.pLocks = {};
+                        step.pLocks.volume = volume;
+                    } else {
                         const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (track) track.patternLength = length;
-                    });
-                },
-                selectPattern: (trackId, patternIndex, currentPlayheadTime) => {
-                    if (get().isSpectator) { get().triggerViewerModeInteraction(); return; }
-                    const { isArrangementRecording, mainView } = get();
-                    if (isArrangementRecording && mainView === 'song') {
-                        const secondsPerBeat = 60 / get().preset.bpm;
-                        const timeInBeats = currentPlayheadTime / secondsPerBeat;
-                        
-                        set(state => {
-                            const track = state.preset.tracks.find(t => t.id === trackId);
-                            if (!track) return;
-                    
-                            // Find the currently recording clip for this track and end it
-                            const existingClipIndex = state.recordingClips.findIndex(c => c.trackId === trackId);
-                            if (existingClipIndex !== -1) {
-                                const existingClip = state.recordingClips[existingClipIndex];
-                                existingClip.duration = timeInBeats - existingClip.startTime;
-                                // Move it to the main arrangement
-                                if (!state.preset.arrangementClips) state.preset.arrangementClips = [];
-                                if(existingClip.duration > 0) state.preset.arrangementClips.push(existingClip);
-                                state.recordingClips.splice(existingClipIndex, 1);
+                        if (track) track.volume = volume;
+                        if (state.automationRecording?.trackId === trackId) {
+                            get()._recordAutomationPoint(state, trackId, `volume`, volume);
+                        }
+                    }
+                });
+            },
+            setTrackPan: (trackId, pan) => {
+                 set(state => {
+                    const { selectedPLockStep } = state;
+                    if (selectedPLockStep?.trackId === trackId) {
+                        const step = state.preset.tracks[trackId].patterns[state.preset.tracks[trackId].activePatternIndex][selectedPLockStep.stepIndex];
+                        if (!step.pLocks) step.pLocks = {};
+                        step.pLocks.pan = pan;
+                    } else {
+                        const track = state.preset.tracks.find(t => t.id === trackId);
+                        if (track) track.pan = pan;
+                        if (state.automationRecording?.trackId === trackId) {
+                            get()._recordAutomationPoint(state, trackId, `pan`, pan);
+                        }
+                    }
+                });
+            },
+            setFxSend: (trackId, fx, value) => {
+                set(state => {
+                    const { selectedPLockStep } = state;
+                    if (selectedPLockStep?.trackId === trackId) {
+                         const step = state.preset.tracks[trackId].patterns[state.preset.tracks[trackId].activePatternIndex][selectedPLockStep.stepIndex];
+                        if (!step.pLocks) step.pLocks = {};
+                        if (!step.pLocks.fxSends) step.pLocks.fxSends = {};
+                        step.pLocks.fxSends[fx] = value;
+                    } else {
+                        const track = state.preset.tracks.find(t => t.id === trackId);
+                        if (track) track.fxSends[fx] = value;
+                        if (state.automationRecording?.trackId === trackId) {
+                           get()._recordAutomationPoint(state, trackId, `fxSends.${fx}`, value);
+                        }
+                    }
+                });
+            },
+            setGlobalFxParam: (fx, param, value) => {
+                set(state => {
+                    setDeep(state.preset.globalFxParams, `${fx}.${param}`, value);
+                });
+            },
+            setMasterVolume: (volume) => set(state => { state.preset.globalFxParams.masterVolume = volume; }),
+            auditionNote: (note, velocity = 0.8) => {
+                const { selectedTrackId, preset } = get();
+                const track = preset.tracks.find(t => t.id === selectedTrackId);
+                if (track && audioEngine) {
+                    audioEngine.playNote(track, note, velocity);
+                }
+            },
+            setStepProperty: (trackId, stepIndex, prop, value) => {
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        const step = track.patterns[track.activePatternIndex][stepIndex];
+                        if(step) (step as any)[prop] = value;
+                    }
+                });
+            },
+            setPatternLength: (trackId, length) => {
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) track.patternLength = length;
+                });
+            },
+            selectPattern: (trackId, patternIndex, currentPlayheadTime) => {
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        track.activePatternIndex = patternIndex;
+                         if (state.isArrangementRecording) {
+                            const secondsPerBeat = 60 / state.preset.bpm;
+                            const timeInBeats = Math.floor(currentPlayheadTime / secondsPerBeat);
+                            const lastClip = state.recordingClips.find(c => c.trackId === trackId);
+                            if (lastClip) {
+                                lastClip.duration = timeInBeats - lastClip.startTime;
+                                state.recordingClips = state.recordingClips.filter(c => c.duration > 0);
                             }
-                    
-                            // Start a new recording clip
-                            const newClip: ArrangementClip = {
+                            state.recordingClips.push({
                                 id: `rec-${trackId}-${Date.now()}`,
                                 trackId: trackId,
                                 startTime: timeInBeats,
-                                duration: Infinity, // Will be calculated on next change or stop
+                                duration: 9999,
                                 type: 'pattern',
                                 patternIndex: patternIndex,
-                            };
-                            state.recordingClips.push(newClip);
-                        });
+                            });
+                        }
                     }
-
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (track) track.activePatternIndex = patternIndex;
-                    });
-                },
-                
-                startAutomationRecording: (trackId, mode) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set({
-                        automationRecording: { trackId, mode },
-                        overwriteTouchedParams: new Set(),
-                    });
-                    get().addNotification({ type: 'info', message: `Recording automation for Track ${trackId + 1} (${mode})` });
-                },
-                stopAutomationRecording: () => {
-                    if (get().automationRecording) {
-                        get().addNotification({ type: 'success', message: `Stopped automation recording.` });
-                    }
+                });
+            },
+             startAutomationRecording: (trackId, mode) => {
+                const trackName = get().preset.tracks.find(t => t.id === trackId)?.name || 'Unknown Track';
+                set(state => {
+                    state.automationRecording = { trackId, mode };
+                    state.overwriteTouchedParams.clear();
+                });
+                get().addNotification({ type: 'info', message: `Recording automation for ${trackName} (${mode})` });
+            },
+            stopAutomationRecording: () => {
+                const automationRecording = get().automationRecording;
+                if (automationRecording) {
+                    const trackName = get().preset.tracks.find(t => t.id === automationRecording.trackId)?.name || 'Unknown Track';
                     set({ automationRecording: null });
-                },
-                clearAutomation: (trackId) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (track) track.automation = {};
-                    });
-                    get().addNotification({ type: 'info', message: `Cleared automation for Track ${trackId + 1}` });
-                },
-                randomizeTrackPattern: (trackId) => {
-                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (track) {
-                            const isHypnotic = Math.random() > 0.5;
-                            const { pattern, length } = createTechnoPattern(track.type, isHypnotic);
-                            track.patterns[track.activePatternIndex] = pattern;
-                            track.patternLength = length;
-                        }
-                    });
-                },
-                 randomizeInstrument: (trackId) => {
-                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (!track) return;
-
-                        let randomizedParams: Partial<AllInstrumentParams> = {};
+                    get().addNotification({ type: 'success', message: `Stopped recording automation for ${trackName}` });
+                }
+            },
+            clearAutomation: (trackId) => {
+                let trackName: string | undefined;
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        trackName = track.name;
+                        track.automation = {};
+                    }
+                });
+                if (trackName) {
+                    get().addNotification({ type: 'success', message: `Cleared automation for ${trackName}` });
+                }
+            },
+            randomizeTrackPattern: (trackId) => {
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        const { pattern, length } = createTechnoPattern(track.type, track.defaultNote);
+                        track.patterns[track.activePatternIndex] = pattern;
+                        track.patternLength = length;
+                    }
+                });
+            },
+            randomizeInstrument: (trackId) => {
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        let newParams: Partial<AllInstrumentParams> = {};
                         switch (track.type) {
-                            case 'kick': randomizedParams = randomizeKickParams(); break;
-                            case 'hat': randomizedParams = randomizeHatParams(); break;
-                            case 'arcane': randomizedParams = randomizeArcaneParams(); break;
-                            case 'ruin': randomizedParams = randomizeRuinParams(); break;
-                            case 'artifice': randomizedParams = randomizeArtificeParams(); break;
-                            case 'shift': randomizedParams = randomizeShiftParams(); break;
-                            case 'reson': randomizedParams = randomizeResonParams(); break;
-                            case 'alloy': randomizedParams = randomizeAlloyParams(); break;
+                            case 'kick': newParams = randomizeKickParams(); break;
+                            case 'hat': newParams = randomizeHatParams(); break;
+                            case 'arcane': newParams = randomizeArcaneParams(); break;
+                            case 'ruin': newParams = randomizeRuinParams(); break;
+                            case 'artifice': newParams = randomizeArtificeParams(); break;
+                            case 'shift': newParams = randomizeShiftParams(); break;
+                            case 'reson': newParams = randomizeResonParams(); break;
+                            case 'alloy': newParams = randomizeAlloyParams(); break;
                         }
-                        track.params = deepMerge(track.params, randomizedParams);
+                        track.params = { ...track.params, ...newParams };
                         track.loadedInstrumentPresetName = null;
-                    });
-                },
-                randomizeAllPatternsForTrack: (trackId) => {
-                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (track) {
-                            track.patterns = track.patterns.map(() => createTechnoPattern(track.type, Math.random() > 0.5).pattern);
-                        }
-                    });
-                },
-                randomizeAllPatternsForAllTracks: () => {
-                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        state.preset.tracks.forEach(track => {
-                            if (track.type !== 'midi') {
-                                track.patterns = track.patterns.map(() => createTechnoPattern(track.type, Math.random() > 0.5).pattern);
-                            }
-                        });
-                    });
-                },
-                clearTrackPattern: (trackId) => {
-                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (track) {
-                            track.patterns[track.activePatternIndex] = createEmptyPatterns()[0];
-                        }
-                    });
-                },
-                clearAllPatterns: () => {
-                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        state.preset.tracks.forEach(track => {
-                            track.patterns = createEmptyPatterns();
-                            track.activePatternIndex = 0;
-                        });
-                    });
-                },
-                startEuclideanMode: (trackId) => {
-                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (track) {
-                            const currentPattern = track.patterns[track.activePatternIndex];
-                            state.euclideanMode = {
-                                trackId,
-                                pulses: 8,
-                                steps: track.patternLength,
-                                rotation: 0,
-                                originalPattern: deepClone(currentPattern),
-                                originalLength: track.patternLength,
-                            };
-                            // Apply initial euclidean pattern
-                            const euclidean = generateEuclideanPattern(8, track.patternLength);
-                            const newPattern = createEmptyPatterns()[0];
-                            euclidean.forEach((active, i) => { if (active) newPattern[i].active = true; });
-                            track.patterns[track.activePatternIndex] = newPattern;
-                        }
-                    });
-                },
-                updateEuclidean: (params) => {
-                    set(state => {
-                        if (state.euclideanMode) {
-                            state.euclideanMode = { ...state.euclideanMode, ...params };
-                            const track = state.preset.tracks.find(t => t.id === state.euclideanMode!.trackId);
-                            if (track) {
-                                const { pulses, steps, rotation } = state.euclideanMode;
-                                const euclidean = generateEuclideanPattern(pulses, steps);
-                                const rotated = [...euclidean.slice(rotation), ...euclidean.slice(0, rotation)];
-                                const newPattern = createEmptyPatterns()[0];
-                                rotated.forEach((active, i) => { if (active) newPattern[i].active = true; });
-                                track.patterns[track.activePatternIndex] = newPattern;
-                                track.patternLength = steps;
+                    }
+                });
+            },
+             clearTrackPattern: (trackId) => {
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        track.patterns[track.activePatternIndex] = createEmptyPatterns()[0];
+                    }
+                });
+            },
+            randomizeAllPatternsForTrack: () => {},
+            randomizeAllPatternsForAllTracks: () => {},
+            clearAllPatterns: () => {},
+            startEuclideanMode: (trackId) => {
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        const originalPattern = deepClone(track.patterns[track.activePatternIndex]);
+                        state.euclideanMode = {
+                            trackId,
+                            pulses: Math.min(8, track.patternLength),
+                            steps: track.patternLength,
+                            rotation: 0,
+                            originalPattern,
+                            originalLength: track.patternLength,
+                        };
+                        get().updateEuclidean({});
+                    }
+                });
+            },
+            updateEuclidean: (params) => {
+                set(state => {
+                    if (!state.euclideanMode) return;
+                    state.euclideanMode = { ...state.euclideanMode, ...params };
+                    const { trackId, pulses, steps, rotation } = state.euclideanMode;
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        const sequence = generateEuclideanPattern(pulses, steps);
+                        const rotated = [...sequence.slice(-rotation), ...sequence.slice(0, -rotation)];
+                        const newPattern = createEmptyPatterns()[0];
+                        for (let i = 0; i < steps; i++) {
+                            if (rotated[i]) {
+                                newPattern[i].active = true;
                             }
                         }
-                    });
-                },
-                applyEuclidean: () => {
-                    set({ euclideanMode: null });
-                    get().addNotification({ type: 'success', message: 'Euclidean pattern applied.' });
-                },
-                cancelEuclidean: () => {
-                    set(state => {
-                        if (state.euclideanMode) {
-                            const track = state.preset.tracks.find(t => t.id === state.euclideanMode!.trackId);
-                            if (track) {
-                                track.patterns[track.activePatternIndex] = state.euclideanMode.originalPattern;
-                                track.patternLength = state.euclideanMode.originalLength;
-                            }
-                            state.euclideanMode = null;
+                        track.patterns[track.activePatternIndex] = newPattern;
+                        track.patternLength = steps;
+                    }
+                });
+            },
+            applyEuclidean: () => set({ euclideanMode: null }),
+            cancelEuclidean: () => {
+                set(state => {
+                    if (state.euclideanMode) {
+                        const { trackId, originalPattern, originalLength } = state.euclideanMode;
+                        const track = state.preset.tracks.find(t => t.id === trackId);
+                        if (track) {
+                            track.patterns[track.activePatternIndex] = originalPattern;
+                            track.patternLength = originalLength;
                         }
-                    });
-                },
-                
-                // --- MODALS & UI STATE ---
-                toggleQuickStart: (show) => {
-                    const shouldShow = show === undefined ? !get().showQuickStart : show;
-                    set({ showQuickStart: shouldShow });
-                
-                    // If we are hiding the quick start guide, it means the user is done with it.
-                    if (!shouldShow) {
-                        // FIX: localStorage.setItem requires a string value.
-                        localStorage.setItem('fm8r-quickstart-finished', 'true');
-                        
-                        // Now check if we should show the fullscreen prompt.
-                        const fullscreenPromptDismissed = localStorage.getItem('fm8r-fullscreen-prompt-dismissed');
-                        if (!fullscreenPromptDismissed) {
-                            set({ showFullscreenPrompt: true });
-                        }
+                        state.euclideanMode = null;
                     }
-                },
-                togglePresetManager: (open) => set({ isPresetManagerOpen: open === undefined ? !get().isPresetManagerOpen : open }),
-                toggleExportModal: (open) => set({ isExportModalOpen: open === undefined ? !get().isExportModalOpen : open }),
-                toggleStore: (open) => set({ isStoreOpen: open === undefined ? !get().isStoreOpen : open }),
-                toggleSettingsModal: (open) => set({ isSettingsModalOpen: open === undefined ? !get().isSettingsModalOpen : open }),
-                toggleManual: (open) => set({ isManualOpen: open === undefined ? !get().isManualOpen : open }),
-                setMidiOutputs: (outputs) => set({ midiOutputs: outputs.map(o => ({ id: o.id, name: o.name }))}),
-                setAppearanceTheme: (theme) => set({ appearanceTheme: theme }),
-                setAccentTheme: (theme) => set({ accentTheme: theme }),
-                setUiPerformanceMode: (mode) => set({ uiPerformanceMode: mode }),
-                
-                // --- PRESETS & DATA MANAGEMENT ---
-                loadPreset: (preset) => {
-                    if (get().isSpectator) {
-                        get().addNotification({ type: 'info', message: "Can't change projects in Spectator mode." });
-                        return;
-                    }
-                
-                    // This action is the official migration point for all loaded projects.
-                    const loadedPreset = deepClone(preset);
-                    const originalName = loadedPreset.name; // Preserve the original name.
-                
-                    const defaultProject = get().isViewerMode 
-                        ? deepClone(DEMO_DEFAULT_PROJECT) 
-                        : deepClone(LICENSED_DEFAULT_PROJECT);
-                    
-                    // Safely merge the loaded project into the default structure. This guarantees that any
-                    // missing or invalid data (like `compressor: null`) is replaced with valid defaults.
-                    const migratedPreset = deepMerge(defaultProject, loadedPreset);
-                
-                    // Restore the original name, as the merge process would use the default name.
-                    migratedPreset.name = originalName;
-                
-                    set({ preset: migratedPreset, selectedTrackId: 0, sequencerPage: 0, mutedTracks: [], soloedTrackId: null, selectedPLockStep: null, isPLockModeActive: false });
-                    
-                    if (audioEngine) {
-                        // Update the audio engine with the now-guaranteed-to-be-safe preset data.
-                        audioEngine.createTrackChannels(migratedPreset.tracks);
-                        audioEngine.updateBpm(migratedPreset.bpm);
-                        audioEngine.updateReverb(migratedPreset.globalFxParams.reverb, migratedPreset.bpm);
-                        audioEngine.updateDelay(migratedPreset.globalFxParams.delay, migratedPreset.bpm);
-                        audioEngine.updateDrive(migratedPreset.globalFxParams.drive);
-                        audioEngine.updateCharacter(migratedPreset.globalFxParams.character);
-                        audioEngine.updateMasterFilter(migratedPreset.globalFxParams.masterFilter);
-                        audioEngine.updateCompressor(migratedPreset.globalFxParams.compressor); // This is now safe.
-                        audioEngine.updateMasterVolume(migratedPreset.globalFxParams.masterVolume);
-                    }
-                },
-                savePreset: (name) => {
-                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const existing = get().presets.find(p => p.name.toLowerCase() === name.toLowerCase());
-                    if (existing) {
-                        get().addNotification({ type: 'error', message: `A project named "${name}" already exists.` });
-                        return;
-                    }
-                    const newPreset = deepClone(get().preset);
+                });
+            },
+            toggleQuickStart: (show) => set({ showQuickStart: show ?? !get().showQuickStart }),
+            togglePresetManager: (open) => set({ isPresetManagerOpen: open ?? !get().isPresetManagerOpen }),
+            toggleExportModal: (open) => set({ isExportModalOpen: open ?? !get().isExportModalOpen }),
+            toggleStore: (open) => set({ isStoreOpen: open ?? !get().isStoreOpen }),
+            toggleSettingsModal: (open) => set({ isSettingsModalOpen: open ?? !get().isSettingsModalOpen }),
+            toggleManual: (open) => set({ isManualOpen: open ?? !get().isManualOpen }),
+            setMidiOutputs: (outputs) => set({ midiOutputs: outputs.map(o => ({ id: o.id, name: o.name })) }),
+            setAppearanceTheme: (theme) => set({ appearanceTheme: theme }),
+            setAccentTheme: (theme) => set({ accentTheme: theme }),
+            setUiPerformanceMode: (mode) => set({ uiPerformanceMode: mode }),
+            setMidiSyncSource: (source) => {
+                set({ midiSyncSource: source });
+                if (source !== 'internal') get().stop();
+            },
+            setMidiSyncOutput: (output) => set({ midiSyncOutput: output }),
+            loadPreset: (preset) => {
+                const mergedPreset = deepMerge(deepClone(LICENSED_DEFAULT_PROJECT), preset);
+                set({
+                    preset: mergedPreset,
+                    selectedTrackId: 0,
+                    mutedTracks: [],
+                    soloedTrackId: null,
+                    mainView: 'pattern',
+                    sequencerPage: 0,
+                });
+                get().reinitializeAudio();
+            },
+            savePreset: (name) => {
+                set(state => {
+                    const newPreset = deepClone(state.preset);
                     newPreset.name = name;
-                    set(state => ({ presets: [...state.presets, newPreset], preset: newPreset }));
-                    get().addNotification({ type: 'success', message: `Project "${name}" saved.` });
-                },
-                overwritePreset: (name) => {
-                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const presetToSave = deepClone(get().preset);
-                    presetToSave.name = name;
-                    set(state => {
-                        const index = state.presets.findIndex(p => p.name === name);
-                        if (index !== -1) {
-                            state.presets[index] = presetToSave;
+                    state.preset.name = name;
+                    state.presets.push(newPreset);
+                });
+                get().addNotification({ type: 'success', message: `Project "${name}" saved.` });
+            },
+            overwritePreset: (name) => {
+                set(state => {
+                    const index = state.presets.findIndex(p => p.name === name);
+                    if (index > -1) {
+                        state.presets[index] = deepClone(state.preset);
+                        get().addNotification({ type: 'success', message: `Project "${name}" overwritten.` });
+                    }
+                });
+            },
+            saveCurrentProjectAndExtractPresets: () => {
+                const { preset } = get();
+                get().overwritePreset(preset.name);
+                set(state => {
+                    preset.tracks.forEach(track => {
+                        const newPresetName = `${preset.name} - ${track.name}`;
+                        if (!state.instrumentPresets.some(p => p.type === track.type && p.name === newPresetName)) {
+                            state.instrumentPresets.push({
+                                type: track.type,
+                                name: newPresetName,
+                                params: deepClone(track.params),
+                            });
                         }
                     });
-                     get().addNotification({ type: 'success', message: `Project "${name}" updated.` });
-                },
-                saveCurrentProjectAndExtractPresets: () => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    // First, save the current project state to the library.
-                    get().overwritePreset(get().preset.name);
+                });
+                get().addNotification({ type: 'success', message: `Project saved and ${preset.tracks.length} instrument presets extracted.` });
+            },
+            deletePreset: (name) => set(state => { state.presets = state.presets.filter(p => p.name !== name); }),
+            renamePreset: (oldName, newName) => {
+                set(state => {
+                    const preset = state.presets.find(p => p.name === oldName);
+                    if (preset) preset.name = newName;
+                    if (state.preset.name === oldName) state.preset.name = newName;
+                });
+            },
+            exportProject: () => {
+                const preset = get().preset;
+                const data = JSON.stringify(preset, null, 2);
+                const blob = new Blob([data], { type: 'application/json' });
+                downloadBlob(blob, `${preset.name}.fm8r-project`);
+            },
+            importProject: (file) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const result = e.target?.result as string;
+                        const newPreset = JSON.parse(result);
+                        if (newPreset.bpm && newPreset.tracks) {
+                            get().loadPreset(newPreset);
+                        } else {
+                            get().addNotification({ type: 'error', message: 'Invalid project file format.' });
+                        }
+                    } catch (error) {
+                        get().addNotification({ type: 'error', message: 'Failed to read project file.' });
+                    }
+                };
+                reader.readAsText(file);
+            },
+            saveAllProjects: () => {
+                const data = JSON.stringify({
+                    presets: get().presets,
+                    instrumentPresets: get().instrumentPresets,
+                }, null, 2);
+                const blob = new Blob([data], { type: 'application/json' });
+                downloadBlob(blob, `fm8r_all_projects_backup.json`);
+            },
+            saveCurrentSessionAsNewProject: () => {
+                const name = window.prompt("Enter name for the new project:");
+                if (name && name.trim()) {
+                    get().savePreset(name.trim());
+                }
+            },
+            exportAudio: async (options) => {
+                set({ isExporting: true, exportProgress: 'Starting export...' });
+                const { preset, mainView, arrangementLoop, mutedTracks, soloedTrackId } = get();
+                const sampleRate = 44100;
                 
-                    // Now, extract instrument presets from the current project in a single, safe state update.
-                    set(state => {
-                        let extractedCount = 0;
-                        const project = state.preset; // Use the current state's preset
-                
-                        project.tracks.forEach(track => {
-                            // Ensure track is not MIDI and has params to save.
-                            if (track.type !== 'midi' && track.params && Object.keys(track.params).length > 0) {
-                                const presetName = `${project.name} - ${track.name}`;
-                                const trackType = track.type;
-                                
-                                // Check if a preset with the same name and type already exists.
-                                const existing = state.instrumentPresets.find(p => p.type === trackType && p.name.toLowerCase() === presetName.toLowerCase());
-                                
-                                if (!existing) {
-                                    const newPreset: InstrumentPreset = {
-                                        name: presetName,
-                                        type: trackType,
-                                        params: deepClone(track.params),
-                                    };
-                                    state.instrumentPresets.push(newPreset);
-                                    extractedCount++;
-                                }
+                try {
+                    let result;
+                    if (mainView === 'song') {
+                        let startTime = 0;
+                        let endTime = 0;
+                        if (options.source === 'song-full') {
+                           endTime = (preset.arrangementClips || []).reduce((max, c) => Math.max(max, c.startTime + c.duration), 0);
+                        } else {
+                           if (!arrangementLoop) throw new Error("Arrangement loop is not set.");
+                           startTime = arrangementLoop.start;
+                           endTime = arrangementLoop.end;
+                        }
+                        const secondsPerBeat = 60 / preset.bpm;
+                        result = await renderSongAudio(preset, sampleRate, mutedTracks, soloedTrackId, { ...options, startTime: startTime * secondsPerBeat, endTime: endTime * secondsPerBeat }, (progress) => set({ exportProgress: progress }));
+                    } else {
+                        result = await renderPatternAudio(preset, sampleRate, mutedTracks, soloedTrackId, options, (progress) => set({ exportProgress: progress }));
+                    }
+
+                    downloadBlob(result.blob, result.name);
+                    get().addNotification({ type: 'success', message: 'Audio export finished!' });
+                    return result;
+                } catch (error) {
+                    console.error("Export failed:", error);
+                    get().addNotification({ type: 'error', message: `Export failed: ${error}` });
+                    throw error;
+                } finally {
+                    set({ isExporting: false, exportProgress: '' });
+                }
+            },
+            renderJamVideoAudio: async () => {
+                const { preset, mainView, arrangementLoop, mutedTracks, soloedTrackId } = get();
+                const sampleRate = 44100;
+
+                if (mainView === 'song') {
+                    if (!arrangementLoop) {
+                        throw new Error("Arrangement loop is not set.");
+                    }
+                    const secondsPerBeat = 60 / preset.bpm;
+                    const options = {
+                        startTime: arrangementLoop.start * secondsPerBeat,
+                        endTime: arrangementLoop.end * secondsPerBeat,
+                    };
+                    const totalDuration = options.endTime - options.startTime;
+                    if (totalDuration <= 0) throw new Error("Loop duration is zero or negative.");
+
+                    const secondsPerStep = (60.0 / preset.bpm) / 4.0;
+                    
+                    const offlineCtx = new OfflineAudioContext(2, Math.ceil(totalDuration * sampleRate), sampleRate);
+                    const engine = new AudioEngine(offlineCtx);
+                    await engine.init();
+                    
+                    engine.createTrackChannels(preset.tracks);
+                    engine.updateBpm(preset.bpm);
+                    engine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
+                    engine.updateDelay(preset.globalFxParams.delay, preset.bpm);
+                    engine.updateDrive(preset.globalFxParams.drive);
+                    engine.updateCharacter(preset.globalFxParams.character);
+                    engine.updateMasterFilter(preset.globalFxParams.masterFilter);
+                    engine.updateCompressor(preset.globalFxParams.compressor);
+                    engine.updateMasterVolume(preset.globalFxParams.masterVolume);
+
+                    (preset.arrangementClips || []).forEach(clip => {
+                        const track = preset.tracks.find(t => t.id === clip.trackId);
+                        if (!track) return;
+                        const isAudible = soloedTrackId === null ? !mutedTracks.includes(track.id) : soloedTrackId === track.id;
+                        if (!isAudible) return;
+
+                        const pattern = track.patterns[clip.patternIndex!];
+                        if (!pattern) return;
+
+                        const clipStartSeconds = clip.startTime * secondsPerBeat;
+                        const clipDurationSeconds = clip.duration * secondsPerBeat;
+
+                        const firstStepInRenderWindow = Math.floor(Math.max(0, options.startTime - clipStartSeconds) / secondsPerStep);
+                        const lastStepInRenderWindow = Math.ceil(Math.max(0, options.endTime - clipStartSeconds) / secondsPerStep);
+
+                        for (let step = firstStepInRenderWindow; step < lastStepInRenderWindow; step++) {
+                            const stepTimeInClip = step * secondsPerStep;
+                            if (stepTimeInClip >= clipDurationSeconds) break;
+
+                            const absoluteTime = clipStartSeconds + stepTimeInClip;
+                            const timeInContext = absoluteTime - options.startTime;
+                            
+                            if (timeInContext >= 0 && timeInContext < totalDuration) {
+                                const patternStepIndex = step % track.patternLength;
+                                const stepState = pattern[patternStepIndex];
+                                const loopTimeForAutomation = (patternStepIndex % 64) * secondsPerStep;
+                                const loopCountForTrigs = Math.floor(step / track.patternLength);
+                                engine.playStep(track, stepState, timeInContext, loopTimeForAutomation, loopCountForTrigs);
+                            }
+                        }
+                    });
+
+                    return offlineCtx.startRendering();
+                } else {
+                    const RENDER_STEPS = 64;
+                    const secondsPerStep = (60.0 / preset.bpm) / 4.0;
+                    const totalDuration = RENDER_STEPS * secondsPerStep;
+                    
+                    const offlineCtx = new OfflineAudioContext(2, Math.ceil(totalDuration * sampleRate), sampleRate);
+                    const engine = new AudioEngine(offlineCtx);
+                    await engine.init();
+
+                    engine.createTrackChannels(preset.tracks);
+                    engine.updateBpm(preset.bpm);
+                    engine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
+                    engine.updateDelay(preset.globalFxParams.delay, preset.bpm);
+                    engine.updateDrive(preset.globalFxParams.drive);
+                    engine.updateCharacter(preset.globalFxParams.character);
+                    engine.updateMasterFilter(preset.globalFxParams.masterFilter);
+                    engine.updateCompressor(preset.globalFxParams.compressor);
+                    engine.updateMasterVolume(preset.globalFxParams.masterVolume);
+
+                    for (let i = 0; i < RENDER_STEPS; i++) {
+                        const time = i * secondsPerStep;
+                        preset.tracks.forEach(track => {
+                            const isAudible = soloedTrackId === null ? !mutedTracks.includes(track.id) : soloedTrackId === track.id;
+                            if (isAudible) {
+                                const patternStepIndex = i % track.patternLength;
+                                const stepState = track.patterns[track.activePatternIndex][patternStepIndex];
+                                engine.playStep(track, stepState, time, time, 0);
                             }
                         });
-                
-                        if (extractedCount > 0) {
-                            state.addNotification({ type: 'success', message: `Project saved and ${extractedCount} new instrument presets extracted.` });
-                        } else {
-                            state.addNotification({ type: 'success', message: `Project saved. No new presets were extracted (they may already exist).` });
-                        }
-                    });
-                },
-                deletePreset: (name) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    if (name === "Blank Project" || name === "New Project") {
-                         get().addNotification({ type: 'error', message: `Cannot delete factory default project.` });
-                        return;
                     }
-                    set(state => ({ presets: state.presets.filter(p => p.name !== name) }));
-                     get().addNotification({ type: 'info', message: `Project "${name}" deleted.` });
-                },
-                renamePreset: (oldName, newName) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    if (oldName === "Blank Project" || oldName === "New Project") {
-                         get().addNotification({ type: 'error', message: `Cannot rename factory default project.` });
-                        return;
-                    }
+                    return offlineCtx.startRendering();
+                }
+            },
+            setLicenseKey: (key, isSilent = false) => {
+                const isValid = key.startsWith("FM8R-");
+                if (isValid) {
+                    localStorage.setItem('fm8r-license-key', key);
                     set(state => {
-                        const preset = state.presets.find(p => p.name === oldName);
-                        if (preset) preset.name = newName;
-                        if (state.preset.name === oldName) state.preset.name = newName;
+                        state.licenseKey = key;
+                        state.isViewerMode = false;
+                        state.isLicenseModalOpen = false;
+                        state.preset = deepMerge(deepClone(LICENSED_DEFAULT_PROJECT), state.preset);
                     });
-                },
-                 saveCurrentSessionAsNewProject: () => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const newProject = deepClone(get().preset);
-                    const now = new Date();
-                    const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-                    newProject.name = `Session ${timestamp}`;
-                    set(state => ({
-                        presets: [...state.presets, newProject],
-                        preset: newProject, // Load the newly saved project
-                    }));
-                    get().addNotification({ type: 'success', message: `Saved current session as "${newProject.name}".` });
-                },
-
-                // --- IMPORT / EXPORT ---
-                exportProject: () => {
-                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const presetToExport = get().preset;
-                    const blob = new Blob([JSON.stringify(presetToExport, null, 2)], { type: 'application/json' });
-                    downloadBlob(blob, `${presetToExport.name}.fm8r-project`);
-                },
-                importProject: (file) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        try {
-                            const result = e.target?.result as string;
-                            const newPreset = JSON.parse(result);
-                            if (newPreset.name && newPreset.tracks) {
-                                if (get().presets.some(p => p.name === newPreset.name)) {
-                                    get().addNotification({ type: 'error', message: `A project named "${newPreset.name}" already exists. Please rename it before importing.` });
-                                } else {
-                                    set(state => { state.presets.push(newPreset); });
-                                    get().addNotification({ type: 'success', message: `Project "${newPreset.name}" imported.` });
-                                }
-                            } else {
-                                throw new Error("Invalid project file format.");
-                            }
-                        } catch (error) {
-                            console.error("Failed to import project:", error);
-                             get().addNotification({ type: 'error', message: 'Failed to import project. Invalid file format.' });
-                        }
-                    };
-                    reader.readAsText(file);
-                },
-                saveAllProjects: async () => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
+                    if (!isSilent) {
+                        get().addNotification({ type: 'success', message: 'Full version unlocked! Enjoy all features.' });
+                    }
+                    get().reinitializeAudio();
+                } else if (!isSilent) {
+                    get().addNotification({ type: 'error', message: 'Invalid license key.' });
+                }
+            },
+            clearLicenseKey: () => {
+                localStorage.removeItem('fm8r-license-key');
+                set(state => {
+                    state.licenseKey = null;
+                    state.isViewerMode = true;
+                });
+            },
+            triggerViewerModeInteraction: () => {
+                const { lastNotificationTime } = get();
+                const now = Date.now();
+                if (now - lastNotificationTime > 3000) {
+                    get().addNotification({ type: 'info', message: 'This feature requires the full version.' });
+                    get().toggleLicenseModal(true);
+                    set({ lastNotificationTime: now });
+                }
+            },
+            toggleLicenseModal: (open) => set({ isLicenseModalOpen: open ?? !get().isLicenseModalOpen }),
+            toggleShareJamModal: (open) => set({ isShareJamOpen: open ?? !get().isShareJamOpen }),
+            generateShareableLink: async () => {
+                const { preset, addNotification } = get();
+                try {
                     await loadJSZip();
                     const zip = new JSZip();
-                    get().presets.forEach(preset => {
-                        zip.file(`${preset.name}.fm8r-project`, JSON.stringify(preset, null, 2));
+                    const projectData = deepClone(preset);
+                    projectData.artist = 'Shared';
+                    zip.file("jam.fm8r-project", JSON.stringify(projectData));
+                    const blob = await zip.generateAsync({
+                        type: "blob",
+                        compression: "DEFLATE",
+                        compressionOptions: { level: 9 }
                     });
-                    const content = await zip.generateAsync({ type: "blob" });
-                    downloadBlob(content, "FM8R_Projects_Backup.zip");
-                },
-                exportAudio: async (options) => {
-                    if (get().isSpectator) {
-                        get().triggerViewerModeInteraction();
-                        get().addNotification({ type: 'info', message: "Export is disabled in Spectator mode." });
-                        return Promise.reject("Export disabled");
-                    }
-                    if (get().isViewerMode) {
-                        get().triggerViewerModeInteraction();
-                        get().addNotification({ type: 'info', message: "Please unlock the full version to export audio." });
-                        return Promise.reject("Export disabled");
-                    }
-                    
-                    const { preset, mutedTracks, soloedTrackId, mainView, arrangementLoop } = get();
-                    const sampleRate = 44100;
-                    const { type, source = mainView === 'pattern' ? 'pattern' : 'song-loop' } = options;
-                    const includeMasterFx = options.includeMasterFx ?? true;
-                    
-                    const onProgress = (message: string) => set({ exportProgress: message });
 
-                    set({ isExporting: true, exportProgress: 'Starting export...' });
-                    try {
-                        let result;
-                        if (source === 'pattern') {
-                            result = await renderPatternAudio(preset, sampleRate, mutedTracks, soloedTrackId, { type, includeMasterFx }, onProgress);
-                        } else if (source === 'song-loop' || source === 'song-full') {
-                            let startTime = 0;
-                            let endTime = 0;
-                            const secondsPerBeat = 60 / preset.bpm;
-
-                            if (source === 'song-loop' && arrangementLoop) {
-                                startTime = arrangementLoop.start * secondsPerBeat;
-                                endTime = arrangementLoop.end * secondsPerBeat;
-                            } else { // full song
-                                const clips = preset.arrangementClips || [];
-                                if (clips.length > 0) {
-                                    endTime = Math.max(...clips.map(c => c.startTime + c.duration)) * secondsPerBeat;
-                                }
-                            }
+                    const reader = new FileReader();
+                    return new Promise((resolve, reject) => {
+                        reader.onloadend = () => {
+                            const base64data = reader.result as string;
+                            const compressedData = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(base64data.split(',')[1] ? atob(base64data.split(',')[1]).split('').map(c => c.charCodeAt(0)) : []))));
+                            const safeUrl = compressedData.replace(/\+/g, '-').replace(/\//g, '_');
+                            const url = `${window.location.origin}${window.location.pathname}?jam=${safeUrl}`;
                             
-                            if (endTime <= startTime) {
-                                throw new Error("Invalid export range. End time must be after start time.");
+                            if (url.length > 2000) {
+                                reject(new Error("Project is too large to share via URL."));
+                            } else {
+                                resolve(url);
                             }
-                            
-                            result = await renderSongAudio(
-                                preset, sampleRate, mutedTracks, soloedTrackId, 
-                                { type, includeMasterFx, startTime, endTime }, 
-                                onProgress
-                            );
-                        } else {
-                            throw new Error("Invalid export source");
-                        }
-                        
-                        downloadBlob(result.blob, result.name);
-                        get().addNotification({ type: 'success', message: `Successfully exported ${result.name}` });
-                        return result;
-                    } catch (error: any) {
-                        console.error("Export failed:", error);
-                        get().addNotification({ type: 'error', message: `Export failed: ${error.message}` });
-                        return Promise.reject(error.message);
-                    } finally {
-                        set({ isExporting: false, exportProgress: '' });
-                    }
-                },
-                installPack: (pack) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const projectNames = new Set(state.presets.map(p => p.name));
-                        const newProjects = pack.projects.filter(p => !projectNames.has(p.name));
-                        state.presets.push(...deepClone(newProjects));
-                        
-                        const instrumentKeys = new Set(state.instrumentPresets.map(p => `${p.type}::${p.name}`));
-                        const newInstruments = pack.instruments.filter(p => !instrumentKeys.has(`${p.type}::${p.name}`));
-                        state.instrumentPresets.push(...deepClone(newInstruments));
-
-                        state.installedPacks.push(pack.id);
-                        state.addNotification({ type: 'success', message: `Expansion Pack "${pack.name}" installed.` });
-                    });
-                },
-                fetchCustomPacks: async (url) => {
-                    if (!url) return;
-                    try {
-                        const response = await fetch(url);
-                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                        const customPacks: ExpansionPack[] = await response.json();
-                        set({ customPacks });
-                        get().addNotification({ type: 'info', message: `Loaded ${customPacks.length} custom packs.` });
-                    } catch (e) {
-                        console.error("Failed to fetch custom packs:", e);
-                        get().addNotification({ type: 'error', message: "Failed to load custom packs from URL." });
-                    }
-                },
-                setCustomStoreUrl: (url) => set({ customStoreUrl: url }),
-
-                // --- ARRANGEMENT ---
-                moveClip: (clipId, newStartTime) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const clip = state.preset.arrangementClips?.find(c => c.id === clipId);
-                        if (clip) clip.startTime = newStartTime;
-                    });
-                },
-                resizeClip: (clipId, newDuration) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const clip = state.preset.arrangementClips?.find(c => c.id === clipId);
-                        if (clip) clip.duration = newDuration;
-                    });
-                },
-                deleteClip: (clipId) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        if (state.preset.arrangementClips) {
-                            state.preset.arrangementClips = state.preset.arrangementClips.filter(c => c.id !== clipId);
-                        }
-                    });
-                },
-                duplicateClip: (clip, newStartTime) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        if (!state.preset.arrangementClips) state.preset.arrangementClips = [];
-                        const newClip = {
-                            ...deepClone(clip),
-                            id: `clip-${Date.now()}-${Math.random()}`,
-                            startTime: newStartTime,
                         };
-                        state.preset.arrangementClips.push(newClip);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(blob);
                     });
-                },
-                addPatternClip: (trackId, startTime, patternIndex) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (!track) return;
-                        if (!state.preset.arrangementClips) state.preset.arrangementClips = [];
+                } catch (e) {
+                    console.error("Link generation failed:", e);
+                    addNotification({ type: 'error', message: e instanceof Error ? e.message : "Failed to generate link." });
+                    throw e;
+                }
+            },
+            installPack: (pack: ExpansionPack) => {
+                set(state => {
+                    if (!state.installedPacks.includes(pack.id)) {
+                        state.installedPacks.push(pack.id);
+                        pack.projects.forEach(p => {
+                            if (!state.presets.some(existing => existing.name === p.name)) {
+                                state.presets.push(deepClone(p));
+                            }
+                        });
+                        pack.instruments.forEach(p => {
+                             if (!state.instrumentPresets.some(existing => existing.name === p.name && existing.type === p.type)) {
+                                state.instrumentPresets.push(deepClone(p));
+                            }
+                        });
+                        get().addNotification({ type: 'success', message: `Expansion Pack "${pack.name}" installed!` });
+                    }
+                });
+            },
+            fetchCustomPacks: async (url) => {
+                 if (!url) {
+                    set({ customPacks: [] });
+                    return;
+                }
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const customPacks = await response.json();
+                    set({ customPacks });
+                    get().addNotification({ type: 'info', message: 'Custom packs loaded from URL.' });
+                } catch (error) {
+                    console.error("Failed to fetch custom packs:", error);
+                    get().addNotification({ type: 'error', message: 'Could not load custom packs from URL.' });
+                }
+            },
+            setCustomStoreUrl: (url) => set({ customStoreUrl: url }),
+            moveClip: (clipId, newStartTime) => {
+                set(state => {
+                    const clip = state.preset.arrangementClips?.find(c => c.id === clipId);
+                    if (clip) {
+                        clip.startTime = newStartTime;
+                    }
+                });
+            },
+            resizeClip: (clipId, newDuration) => {
+                set(state => {
+                    const clip = state.preset.arrangementClips?.find(c => c.id === clipId);
+                    if (clip) {
+                        clip.duration = newDuration;
+                    }
+                });
+            },
+            deleteClip: (clipId) => {
+                set(state => {
+                    if (state.preset.arrangementClips) {
+                        state.preset.arrangementClips = state.preset.arrangementClips.filter(c => c.id !== clipId);
+                    }
+                });
+            },
+            duplicateClip: (clip, newStartTime) => {
+                set(state => {
+                    const newClip = {
+                        ...deepClone(clip),
+                        id: `clip-${Date.now()}`,
+                        startTime: newStartTime,
+                    };
+                    if (!state.preset.arrangementClips) {
+                        state.preset.arrangementClips = [];
+                    }
+                    state.preset.arrangementClips.push(newClip);
+                });
+            },
+            addPatternClip: (trackId, startTime, patternIndex) => {
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        const duration = track.patternLength / 4;
                         const newClip: ArrangementClip = {
-                            id: `clip-${Date.now()}-${Math.random()}`,
+                            id: `clip-${Date.now()}`,
                             trackId,
                             startTime,
-                            duration: track.patternLength / 4, // duration in beats
+                            duration,
                             type: 'pattern',
-                            patternIndex: patternIndex,
+                            patternIndex,
                         };
+                        if (!state.preset.arrangementClips) {
+                            state.preset.arrangementClips = [];
+                        }
                         state.preset.arrangementClips.push(newClip);
-                    });
-                },
-                toggleArrangementRecording: (currentPlayheadTime) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    if (get().isArrangementRecording) {
-                        get().finalizeRecording(currentPlayheadTime);
-                    } else {
-                        set({ isArrangementRecording: true, recordingClips: [] });
-                        get().addNotification({ type: 'info', message: 'Arrangement recording started. Change patterns to record.' });
                     }
-                },
-                finalizeRecording: (currentPlayheadTime) => {
-                    if (!get().isArrangementRecording) return;
-                    
-                    const secondsPerBeat = 60 / get().preset.bpm;
-                    const timeInBeats = currentPlayheadTime / secondsPerBeat;
-                
-                    set(state => {
-                        // Finalize any clips that are still "recording"
+                });
+            },
+            toggleArrangementRecording: (currentPlayheadTime) => {
+                set(state => {
+                    if (state.isArrangementRecording) {
+                        // Stop recording
                         state.recordingClips.forEach(clip => {
-                            clip.duration = timeInBeats - clip.startTime;
-                            if (!state.preset.arrangementClips) state.preset.arrangementClips = [];
-                            if (clip.duration > 0) state.preset.arrangementClips.push(clip);
+                            if (clip.duration === 9999) {
+                                clip.duration = currentPlayheadTime / (60 / state.preset.bpm) - clip.startTime;
+                            }
                         });
-                
+                        state.recordingClips = state.recordingClips.filter(c => c.duration > 0.01);
+                        state.preset.arrangementClips = [...(state.preset.arrangementClips || []), ...state.recordingClips];
                         state.isArrangementRecording = false;
                         state.recordingClips = [];
-                    });
-                    get().addNotification({ type: 'success', message: 'Arrangement recording finished.' });
-                },
-                initializeArrangementLoop: (defaultDurationInBeats) => {
-                    if (get().arrangementLoop) return; // Don't overwrite if it already exists
-                    
-                    const { preset } = get();
-                    const clips = preset.arrangementClips || [];
-                    if (clips.length > 0) {
-                        const minStart = Math.min(...clips.map(c => c.startTime));
-                        const maxEnd = Math.max(...clips.map(c => c.startTime + c.duration));
-                        set({ arrangementLoop: { start: minStart, end: maxEnd } });
                     } else {
-                        set({ arrangementLoop: { start: 0, end: defaultDurationInBeats } });
+                        // Start recording
+                        state.isArrangementRecording = true;
+                        state.recordingClips = [];
+                        state.preset.tracks.forEach(track => {
+                            if (!state.mutedTracks.includes(track.id)) {
+                                state.recordingClips.push({
+                                    id: `rec-${track.id}-${Date.now()}`,
+                                    trackId: track.id,
+                                    startTime: Math.floor(currentPlayheadTime / (60 / state.preset.bpm)),
+                                    duration: 9999, // placeholder for ongoing
+                                    type: 'pattern',
+                                    patternIndex: track.activePatternIndex,
+                                });
+                            }
+                        });
                     }
-                },
-                setArrangementLoop: (start, end) => {
-                    if (start < end) {
-                        set({ arrangementLoop: { start, end } });
+                });
+            },
+            finalizeRecording: (currentPlayheadTime) => {
+                set(state => {
+                    if (state.isArrangementRecording) {
+                        state.recordingClips.forEach(clip => {
+                            if (clip.duration === 9999) {
+                                clip.duration = currentPlayheadTime / (60 / state.preset.bpm) - clip.startTime;
+                            }
+                        });
+                        state.recordingClips = state.recordingClips.filter(c => c.duration > 0.01);
+                        state.preset.arrangementClips = [...(state.preset.arrangementClips || []), ...state.recordingClips];
+                        state.isArrangementRecording = false;
+                        state.recordingClips = [];
                     }
-                },
-                
-                 // --- NOTIFICATIONS ---
-                removeNotification: (id) => set(state => ({ notifications: state.notifications.filter(n => n.id !== id) })),
-                addNotification: (notification) => set(state => ({ notifications: [...state.notifications, { ...notification, id: Date.now() + Math.random() }]})),
-                
-                // --- INSTRUMENT PRESETS ---
-                saveInstrumentPreset: (trackType, name) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const existing = state.instrumentPresets.find(p => p.type === trackType && p.name.toLowerCase() === name.toLowerCase());
-                        if (existing) {
-                            state.addNotification({ type: 'error', message: `An instrument preset named "${name}" already exists for this type.` });
-                            return;
+                });
+            },
+            initializeArrangementLoop: (defaultDurationInBeats) => {
+                set(state => {
+                    if (!state.arrangementLoop) {
+                        const clips = state.preset.arrangementClips || [];
+                        const maxTime = clips.reduce((max, c) => Math.max(max, c.startTime + c.duration), 0);
+                        if (maxTime > 0) {
+                            state.arrangementLoop = { start: 0, end: Math.ceil(maxTime / 4) * 4 };
+                        } else {
+                            state.arrangementLoop = { start: 0, end: defaultDurationInBeats };
+                        }
+                    }
+                });
+            },
+            setArrangementLoop: (start, end) => {
+                set({ arrangementLoop: { start, end } });
+            },
+            removeNotification: (id) => {
+                set(state => {
+                    state.notifications = state.notifications.filter(n => n.id !== id);
+                });
+            },
+            addNotification: (notification) => {
+                set(state => {
+                    const newNotification = { ...notification, id: Date.now() };
+                    state.notifications.push(newNotification);
+                    if (state.notifications.length > 5) {
+                        state.notifications.shift();
+                    }
+                });
+            },
+            saveInstrumentPreset: (trackType, name) => {
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.type === trackType);
+                    if (track) {
+                        const newPreset = { type: trackType, name, params: deepClone(track.params) };
+                        state.instrumentPresets.push(newPreset);
+                        const currentTrack = state.preset.tracks.find(t => t.id === state.selectedTrackId);
+                        if (currentTrack) currentTrack.loadedInstrumentPresetName = name;
+                        get().addNotification({ type: 'success', message: `Instrument preset "${name}" saved.` });
+                    }
+                });
+            },
+            loadInstrumentPreset: (preset) => {
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === state.selectedTrackId);
+                    if (track && track.type === preset.type) {
+                        track.params = deepClone(preset.params);
+                        track.loadedInstrumentPresetName = preset.name;
+                    } else {
+                        // Find first track of matching type
+                        const matchingTrack = state.preset.tracks.find(t => t.type === preset.type);
+                        if (matchingTrack) {
+                            matchingTrack.params = deepClone(preset.params);
+                            matchingTrack.loadedInstrumentPresetName = preset.name;
+                            state.selectedTrackId = matchingTrack.id;
+                        } else {
+                             get().addNotification({ type: 'error', message: `No track with type "${preset.type}" found.` });
+                        }
+                    }
+                });
+            },
+            deleteInstrumentPreset: (trackType, name) => {
+                set(state => {
+                    state.instrumentPresets = state.instrumentPresets.filter(p => !(p.type === trackType && p.name === name));
+                });
+            },
+            importInstrumentPresets: (file) => {
+                 const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const result = e.target?.result as string;
+                        const imported = JSON.parse(result);
+                        
+                        let presetsToImport: InstrumentPreset[] = [];
+                        if (Array.isArray(imported)) {
+                            presetsToImport = imported;
+                        } else if (imported.instrumentPresets && Array.isArray(imported.instrumentPresets)) {
+                            presetsToImport = imported.instrumentPresets;
                         }
 
-                        const track = state.preset.tracks.find(t => t.id === state.selectedTrackId);
-                        if (track && track.type === trackType) {
-                            const newPreset: InstrumentPreset = {
-                                name,
-                                type: trackType,
-                                params: deepClone(track.params),
-                            };
-                            state.instrumentPresets.push(newPreset);
-                            state.addNotification({ type: 'success', message: `Instrument preset "${name}" saved.` });
+                        if (presetsToImport.length > 0) {
+                            set(state => {
+                                presetsToImport.forEach(p => {
+                                    if (p.type && p.name && p.params && !state.instrumentPresets.some(existing => existing.name === p.name && existing.type === p.type)) {
+                                        state.instrumentPresets.push(p);
+                                    }
+                                });
+                            });
+                             get().addNotification({ type: 'success', message: `${presetsToImport.length} instrument presets imported.` });
+                        } else {
+                            get().addNotification({ type: 'error', message: 'No valid instrument presets found in file.' });
                         }
-                    });
-                },
-                loadInstrumentPreset: (preset) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === state.selectedTrackId);
-                        if (track && track.type === preset.type) {
-                            // Ensure compatibility by merging with default params
-                            const defaultParams = getInitialParamsForType(track.type);
-                            track.params = deepMerge(defaultParams, preset.params);
-                            track.loadedInstrumentPresetName = preset.name;
+                    } catch (error) {
+                        get().addNotification({ type: 'error', message: 'Failed to read instrument preset file.' });
+                    }
+                };
+                reader.readAsText(file);
+            },
+            exportInstrumentPresets: (trackType) => {
+                 const presets = get().instrumentPresets.filter(p => p.type === trackType);
+                if (presets.length > 0) {
+                    const data = JSON.stringify(presets, null, 2);
+                    const blob = new Blob([data], { type: 'application/json' });
+                    downloadBlob(blob, `fm8r_${trackType}_presets.json`);
+                } else {
+                    get().addNotification({ type: 'info', message: `No presets to export for ${trackType}.` });
+                }
+            },
+            copyStep: (trackId, stepIndex) => {
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        const step = track.patterns[track.activePatternIndex][stepIndex];
+                        state.copiedStep = { trackId, stepIndex, step: deepClone(step) };
+                         get().addNotification({ type: 'info', message: 'Step copied' });
+                    }
+                });
+            },
+            pasteStep: (trackId, stepIndex) => {
+                set(state => {
+                    if (state.copiedStep) {
+                        const track = state.preset.tracks.find(t => t.id === trackId);
+                        if (track) {
+                            track.patterns[track.activePatternIndex][stepIndex] = deepClone(state.copiedStep.step);
+                            get().addNotification({ type: 'info', message: 'Step pasted' });
                         }
-                    });
-                },
-                deleteInstrumentPreset: (trackType, name) => {
-                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        state.instrumentPresets = state.instrumentPresets.filter(p => !(p.type === trackType && p.name === name));
-                    });
-                    get().addNotification({ type: 'info', message: `Instrument preset "${name}" deleted.` });
-                },
-                 importInstrumentPresets: (file) => {
-                     if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const reader = new FileReader();
+                    }
+                });
+            },
+            copyPattern: () => {
+                const { selectedTrackId, preset } = get();
+                const track = preset.tracks.find(t => t.id === selectedTrackId);
+                if (track) {
+                    const pattern = track.patterns[track.activePatternIndex];
+                    set({ copiedPattern: { trackId: selectedTrackId, pattern: deepClone(pattern) }});
+                    get().addNotification({ type: 'info', message: `Pattern for ${track.name} copied.` });
+                }
+            },
+            pastePattern: () => {
+                 set(state => {
+                    if (state.copiedPattern) {
+                        const track = state.preset.tracks.find(t => t.id === state.selectedTrackId);
+                        if (track) {
+                            track.patterns[track.activePatternIndex] = deepClone(state.copiedPattern.pattern);
+                            get().addNotification({ type: 'info', message: `Pattern pasted to ${track.name}.` });
+                        }
+                    }
+                 });
+            },
+            toggleCenterView: () => {
+                set(state => {
+                    state.centerView = state.centerView === 'mixer' ? 'pianoRoll' : 'mixer';
+                });
+            },
+            setMainView: (view: MainView) => {
+                set({ mainView: view });
+            },
+            setSequencerPage: (page: number) => {
+                set({ sequencerPage: page });
+            },
+            setAudioOutputDevices: (devices) => {
+                set({ audioOutputDevices: devices });
+            },
+            selectAudioOutput: (deviceId) => {
+                set({ selectedAudioOutputId: deviceId });
+                get().reinitializeAudio();
+            },
+            setLatency: (latency) => {
+                set({ latencySetting: latency });
+                get().reinitializeAudio();
+            },
+            exportFullBackup: (midiMappings) => {
+                const { presets, instrumentPresets, installedPacks, appearanceTheme, accentTheme, latencySetting, midiSyncSource, midiSyncOutput } = get();
+                const backup: FullBackup = {
+                    version: '1.0',
+                    presets,
+                    instrumentPresets,
+                    installedPacks,
+                    appearanceTheme,
+                    accentTheme,
+                    midiMappings,
+                    midiSyncSource,
+                    midiSyncOutput,
+                };
+                const data = JSON.stringify(backup, null, 2);
+                const blob = new Blob([data], { type: 'application/json' });
+                downloadBlob(blob, 'fm8r-full-backup.json');
+            },
+            importFullBackup: async (file) => {
+                const reader = new FileReader();
+                return new Promise((resolve, reject) => {
                     reader.onload = (e) => {
                         try {
                             const result = e.target?.result as string;
-                            const imported = JSON.parse(result) as InstrumentPreset[] | { name: string, type: TrackType, presets: InstrumentPreset[] };
-                            
-                            let presetsToImport: InstrumentPreset[];
-                            if (Array.isArray(imported)) {
-                                presetsToImport = imported;
-                            } else if (imported.presets && Array.isArray(imported.presets)) {
-                                presetsToImport = imported.presets;
-                            } else {
-                                throw new Error("Invalid format");
-                            }
-
-                            set(state => {
-                                let added = 0;
-                                const existingKeys = new Set(state.instrumentPresets.map(p => `${p.type}::${p.name.toLowerCase()}`));
-                                presetsToImport.forEach(p => {
-                                    if (p.type && p.name && p.params && !existingKeys.has(`${p.type}::${p.name.toLowerCase()}`)) {
-                                        state.instrumentPresets.push(p);
-                                        added++;
-                                    }
-                                });
-                                get().addNotification({ type: 'success', message: `Imported ${added} new instrument presets.` });
+                            const backup: FullBackup = JSON.parse(result);
+                            set({
+                                presets: backup.presets,
+                                instrumentPresets: backup.instrumentPresets,
+                                installedPacks: backup.installedPacks,
+                                appearanceTheme: backup.appearanceTheme,
+                                accentTheme: backup.accentTheme,
+                                midiSyncSource: backup.midiSyncSource,
+                                midiSyncOutput: backup.midiSyncOutput,
                             });
-
+                            get().addNotification({ type: 'success', message: 'Full backup restored successfully.' });
+                            resolve(backup.midiMappings);
                         } catch (error) {
-                            get().addNotification({ type: 'error', message: 'Failed to import instrument presets. Invalid file.' });
+                            get().addNotification({ type: 'error', message: 'Failed to read backup file.' });
+                            reject(error);
                         }
                     };
                     reader.readAsText(file);
-                },
-                exportInstrumentPresets: (trackType) => {
-                    if (get().isViewerMode) { get().triggerViewerModeInteraction(); return; }
-                    const presetsToExport = get().instrumentPresets.filter(p => p.type === trackType);
-                    const exportObj = {
-                        name: `${trackType.toUpperCase()} Presets`,
-                        type: trackType,
-                        presets: presetsToExport,
-                    };
-                    const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
-                    downloadBlob(blob, `FM8R_${trackType}_presets.json`);
-                },
-                copyStep: (trackId, stepIndex) => {
-                     if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (track) {
-                            const step = track.patterns[track.activePatternIndex][stepIndex];
-                            state.copiedStep = { trackId, stepIndex, step: deepClone(step) };
-                            get().addNotification({ type: 'info', message: `Copied step ${stepIndex + 1} from ${track.name}` });
-                        }
-                    });
-                },
-                pasteStep: (trackId, stepIndex) => {
-                    if (get().isViewerMode && trackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        if (state.copiedStep) {
-                            const track = state.preset.tracks.find(t => t.id === trackId);
-                            if (track) {
-                                track.patterns[track.activePatternIndex][stepIndex] = deepClone(state.copiedStep.step);
-                            }
-                        }
-                    });
-                },
-                copyPattern: () => {
-                    const { selectedTrackId } = get();
-                    if (get().isViewerMode && selectedTrackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        const track = state.preset.tracks.find(t => t.id === selectedTrackId);
-                        if (track) {
-                            const pattern = track.patterns[track.activePatternIndex];
-                            state.copiedPattern = { trackId: selectedTrackId, pattern: deepClone(pattern) };
-                            get().addNotification({ type: 'info', message: `Copied pattern from ${track.name}` });
-                        }
-                    });
-                },
-                pastePattern: () => {
-                     const { selectedTrackId } = get();
-                    if (get().isViewerMode && selectedTrackId >= 3) { get().triggerViewerModeInteraction(); return; }
-                    set(state => {
-                        if (state.copiedPattern) {
-                            const track = state.preset.tracks.find(t => t.id === selectedTrackId);
-                            if (track) {
-                                track.patterns[track.activePatternIndex] = deepClone(state.copiedPattern.pattern);
-                            }
-                        }
-                    });
-                },
-                toggleCenterView: () => set(state => ({ centerView: state.centerView === 'mixer' ? 'pianoRoll' : 'mixer' })),
-                setMainView: (view) => set({ mainView: view }),
-                setSequencerPage: (page) => set({ sequencerPage: page }),
-                setAudioOutputDevices: (devices) => set({ audioOutputDevices: devices }),
-                selectAudioOutput: (deviceId) => {
-                    set({ selectedAudioOutputId: deviceId });
-                    get().reinitializeAudio();
-                },
-                setLatency: (latency) => {
-                    set({ latencySetting: latency });
-                    get().reinitializeAudio();
-                },
-                 exportFullBackup: (midiMappings) => {
-                    const stateToSave = {
-                        version: '1.2.0',
-                        presets: get().presets,
-                        instrumentPresets: get().instrumentPresets,
-                        installedPacks: get().installedPacks,
-                        appearanceTheme: get().appearanceTheme,
-                        accentTheme: get().accentTheme,
-                        midiMappings: midiMappings,
-                        midiSyncSource: get().midiSyncSource,
-                        midiSyncOutput: get().midiSyncOutput,
-                    };
-                    const blob = new Blob([JSON.stringify(stateToSave, null, 2)], { type: 'application/json' });
-                    downloadBlob(blob, `FM8R_Full_Backup.fm8r-backup`);
-                },
-                importFullBackup: (file) => {
-                    return new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = (e) => {
-                            try {
-                                const result = e.target?.result as string;
-                                const backup = JSON.parse(result) as FullBackup;
-                                
-                                set(state => {
-                                    state.presets = backup.presets || state.presets;
-                                    state.instrumentPresets = backup.instrumentPresets || state.instrumentPresets;
-                                    state.installedPacks = backup.installedPacks || state.installedPacks;
-                                    state.appearanceTheme = (backup.appearanceTheme as AppearanceThemeKey) || state.appearanceTheme;
-                                    state.accentTheme = (backup.accentTheme as AccentThemeKey) || state.accentTheme;
-                                    state.midiSyncSource = backup.midiSyncSource || state.midiSyncSource;
-                                    state.midiSyncOutput = backup.midiSyncOutput || state.midiSyncOutput;
-                                });
-                                
-                                get().addNotification({ type: 'success', message: 'Full backup restored successfully.' });
-                                resolve(backup.midiMappings || []);
-                            } catch (err) {
-                                get().addNotification({ type: 'error', message: 'Failed to import backup. Invalid file format.' });
-                                reject(err);
-                            }
-                        };
-                        reader.readAsText(file);
-                    });
-                },
-                 setMidiSyncSource: (source) => {
-                    set({ midiSyncSource: source });
-                    // If switching to internal, stop playback to regain control.
-                    if (source === 'internal') {
-                        usePlaybackStore.getState().stop();
+                });
+            },
+            addMidiCcLock: (cc = 0, value = 0) => {
+                const { selectedPLockStep } = get();
+                if (!selectedPLockStep) return;
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === selectedPLockStep.trackId);
+                    if (!track || track.type !== 'midi') return;
+                    const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                    if (!step.pLocks) step.pLocks = {};
+                    if (!step.pLocks.ccLocks) step.pLocks.ccLocks = [];
+                    step.pLocks.ccLocks.push({ id: `cc-${Date.now()}`, cc, value });
+                });
+            },
+            updateMidiCcLock: (id, cc, value) => {
+                const { selectedPLockStep } = get();
+                if (!selectedPLockStep) return;
+                 set(state => {
+                    const track = state.preset.tracks.find(t => t.id === selectedPLockStep.trackId);
+                    if (!track || track.type !== 'midi') return;
+                    const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                    const lock = step.pLocks?.ccLocks?.find(l => l.id === id);
+                    if (lock) {
+                        if (cc !== undefined) lock.cc = cc;
+                        if (value !== undefined) lock.value = value;
                     }
-                },
-                setMidiSyncOutput: (output) => set({ midiSyncOutput: output }),
-                setLicenseKey: (key, isSilent = false) => {
-                    const isOwnerKey = key === "FM8R-OWNER-PRO-UNLIMITED-ACCESS";
-                    
-                    // Definitive regex for generated keys: FM8R-GEN- followed by 3 blocks of 4 alphanumeric chars.
-                    const isGeneratedKey = (k: string): boolean => {
-                        const regex = /^FM8R-GEN-([A-Z0-9]{4}-){2}[A-Z0-9]{4}$/i;
-                        return regex.test(k);
-                    };
-
-                    const isValid = isOwnerKey || isGeneratedKey(key);
+                });
+            },
+            removeMidiCcLock: (id) => {
+                 const { selectedPLockStep } = get();
+                if (!selectedPLockStep) return;
+                set(state => {
+                    const track = state.preset.tracks.find(t => t.id === selectedPLockStep.trackId);
+                    if (!track || track.type !== 'midi') return;
+                    const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                    if (step.pLocks?.ccLocks) {
+                        step.pLocks.ccLocks = step.pLocks.ccLocks.filter(l => l.id !== id);
+                    }
+                });
+            },
+            // Merged actions from playbackStore
+            setAudioEngine: (engine) => {
+                audioEngine = engine;
+                set({ audioEngine: engine });
+                startLevelMonitoring();
+            },
+            togglePlay: () => {
+                if (!get().isAudioReady) {
+                    console.warn("Audio engine not ready, play ignored.");
+                    return;
+                }
+                if (get().midiSyncSource !== 'internal') return;
                 
-                    if (isValid) {
-                        const wasOnBlankProject = get().preset.name === "Blank Project";
-                
-                        set(state => {
-                            state.licenseKey = key;
-                            state.isViewerMode = false;
-                            state.isLicenseModalOpen = false;
-                        });
-                
-                        if (wasOnBlankProject) {
-                            const newProject = get().presets.find(p => p.name === "New Project") || deepClone(LICENSED_DEFAULT_PROJECT);
-                            get().loadPreset(newProject);
+                const wasPlaying = get().isPlaying;
+                if (!wasPlaying) {
+                    audioEngine?.resume();
+                    audioEngine?.resetTriggerStates();
+                    const currentPlayhead = get().currentPlayheadTime;
+                    playStartTime = audioEngine!.getContext().currentTime;
+                    playStartOffset = currentPlayhead;
+            
+                    set({
+                        isPlaying: true,
+                        lastScheduledStepTime: 0, 
+                        lastScheduledSongTime: currentPlayhead,
+                    });
+                } else {
+                    set({ isPlaying: false });
+                }
+            },
+            stop: () => {
+                set({ isPlaying: false, currentStep: -1, totalStepsElapsed: 0, currentPlayheadTime: 0, midiClockPulseCount: 0, lastScheduledSongTime: 0 });
+                playStartOffset = 0;
+                audioEngine?.stopAll();
+                audioEngine?.resetTriggerStates();
+            },
+            setPlayheadPosition: (time) => {
+                set(state => {
+                    if (audioEngine) {
+                        if (state.isPlaying) {
+                            audioEngine.stopAll();
+                            audioEngine.resetTriggerStates();
                         }
-                
-                        if (!isSilent) {
-                            get().addNotification({ type: 'success', message: 'Full version unlocked! Thank you for your support.' });
-                        }
-                        // FIX: localStorage.setItem requires a string value, but was passed a boolean.
-                        localStorage.setItem('fm8r_license_key', key);
+                        playStartTime = audioEngine.getContext().currentTime;
+                        playStartOffset = time;
+                        state.currentPlayheadTime = time;
+                        state.lastScheduledSongTime = time;
+                        state.currentStep = -1;
                     } else {
-                        if (!isSilent) {
-                            get().addNotification({ type: 'error', message: 'Invalid license key.' });
-                        }
+                        playStartOffset = time;
+                        state.currentPlayheadTime = time;
                     }
-                },
-                clearLicenseKey: () => {
-                    set({ licenseKey: null, isViewerMode: true });
-                    // FIX: `setItem` with `false` is incorrect for removing a key. Use `removeItem`.
-                    localStorage.removeItem('fm8r_license_key');
-                    get().addNotification({type: 'info', message: 'License removed.'});
-                },
-                toggleLicenseModal: (open) => set({ isLicenseModalOpen: open === undefined ? !get().isLicenseModalOpen : open }),
-                triggerViewerModeInteraction: () => {
-                    const { isLicenseModalOpen, toggleLicenseModal, lastNotificationTime } = get();
-                    const now = Date.now();
-                    if (!isLicenseModalOpen) {
-                        toggleLicenseModal(true);
-                        // Prevent notification spam
-                        if (now - lastNotificationTime > 5000) {
-                            set({lastNotificationTime: now});
-                            get().addNotification({
-                                type: 'info',
-                                message: 'This feature is available in the full version.',
-                                duration: 5000,
-                            });
-                        }
-                    }
-                },
-                toggleShareJamModal: (open) => set({ isShareJamOpen: open === undefined ? !get().isShareJamOpen : open }),
-                generateShareableLink: async () => {
-                    await loadJSZip();
-                    const zip = new JSZip();
-                    // Strip down preset for sharing
-                    const presetToShare = deepClone(get().preset);
-                    presetToShare.tracks.forEach(track => {
-                        // Keep only active pattern
-                        const activePattern = track.patterns[track.activePatternIndex];
-                        track.patterns = [activePattern];
-                        track.activePatternIndex = 0;
-                        track.patternLength = activePattern.length > 16 ? Math.min(64, Math.ceil(activePattern.length / 16) * 16) : 16;
-                    });
-                    
-                    zip.file("p.json", JSON.stringify(presetToShare));
-                    const content = await zip.generateAsync({type:"base64"});
-                    const toUrlSafeBase64 = (s: string) => s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-                    
-                    const baseUrl = window.location.origin + window.location.pathname;
-                    return `${baseUrl}#jam=${toUrlSafeBase64(content)}`;
-                },
-                toggleFullscreenPrompt: (show) => set({ showFullscreenPrompt: show === undefined ? !get().showFullscreenPrompt : show }),
-                addMidiCcLock: (cc = 74, value = 64) => {
-                    set(state => {
-                        const { selectedPLockStep } = state;
-                        if (!selectedPLockStep) return;
-                        const track = state.preset.tracks.find(t => t.id === selectedPLockStep.trackId);
-                        if (track && track.type === 'midi') {
-                            const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
-                            if (!step.pLocks) step.pLocks = {};
-                            if (!step.pLocks.ccLocks) step.pLocks.ccLocks = [];
-                            step.pLocks.ccLocks.push({ id: `cc-${Date.now()}`, cc, value });
-                        }
-                    });
-                },
-                updateMidiCcLock: (id, cc, value) => {
-                    set(state => {
-                        const { selectedPLockStep } = state;
-                        if (!selectedPLockStep) return;
-                        const track = state.preset.tracks.find(t => t.id === selectedPLockStep.trackId);
-                        if (track && track.type === 'midi') {
-                            const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
-                            const lock = step.pLocks?.ccLocks?.find(l => l.id === id);
-                            if (lock) {
-                                if (cc !== undefined) lock.cc = Math.max(0, Math.min(127, cc));
-                                if (value !== undefined) lock.value = Math.max(0, Math.min(127, value));
+                });
+            },
+            handleMidiSyncMessage: (status) => {
+                const { mainView, addNotification } = get();
+                switch (status) {
+                    case 0xFA: // Start
+                        get().stop();
+                        set({ isPlaying: true, midiClockPulseCount: 0 });
+                        break;
+                    case 0xFC: // Stop
+                        get().stop();
+                        break;
+                    case 0xF8: // Clock
+                        if (get().isPlaying) {
+                            if (mainView !== 'pattern') {
+                                if (get().midiClockPulseCount === 0) {
+                                    addNotification({type: 'info', message: 'External MIDI sync is only supported in Pattern mode for now.'});
+                                }
+                                set(state => { state.midiClockPulseCount++; });
+                                return;
+                            }
+
+                            set(state => { state.midiClockPulseCount++; });
+                            if (get().midiClockPulseCount % PULSES_PER_STEP === 0) {
+                                const { preset, selectedTrackId } = get();
+                                if (!preset) return;
+                                const track = preset.tracks.find(t => t.id === selectedTrackId);
+                                const patternLength = track ? track.patternLength : 64;
+
+                                const stepToPlay = get().totalStepsElapsed;
+                                playOnePatternStep(stepToPlay);
+                                set({
+                                    totalStepsElapsed: stepToPlay + 1,
+                                    currentStep: stepToPlay % patternLength
+                                });
                             }
                         }
-                    });
-                },
-                removeMidiCcLock: (id) => {
-                    set(state => {
-                        const { selectedPLockStep } = state;
-                        if (!selectedPLockStep) return;
-                        const track = state.preset.tracks.find(t => t.id === selectedPLockStep.trackId);
-                        if (track && track.type === 'midi') {
-                            const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
-                            if (step.pLocks?.ccLocks) {
-                                step.pLocks.ccLocks = step.pLocks.ccLocks.filter(l => l.id !== id);
-                            }
-                        }
-                    });
-                },
+                        break;
+                }
+            },
         }))
     )
 );
 
-// A single, consolidated subscription for localStorage persistence.
+// Subscribe to state changes to save to localStorage
 useStore.subscribe(
-    // Select all state properties that need to be persisted.
-    (state) => ({
-        presets: state.presets,
+    (state) => ({ 
+        presets: state.presets, 
         instrumentPresets: state.instrumentPresets,
+        installedPacks: state.installedPacks,
+        customStoreUrl: state.customStoreUrl,
         appearanceTheme: state.appearanceTheme,
         accentTheme: state.accentTheme,
-        customStoreUrl: state.customStoreUrl,
+        uiPerformanceMode: state.uiPerformanceMode,
+        latencySetting: state.latencySetting,
+        midiSyncSource: state.midiSyncSource,
+        midiSyncOutput: state.midiSyncOutput,
     }),
-    // The listener receives the selected state object directly.
-    (stateToSave) => {
+    (currentState) => {
         try {
-            // This prevents saving the entire state including transient UI state.
-            localStorage.setItem('fm8r-state', JSON.stringify(stateToSave));
-        } catch (e) {
-            console.warn("Could not save state to localStorage:", e);
+            localStorage.setItem('fm8r-state', JSON.stringify(currentState));
+        } catch (error) {
+            console.error("Failed to save state to localStorage:", error);
         }
     },
-    { 
-        // Use shallow equality check which is more performant and safer than JSON.stringify.
-        equalityFn: shallow, 
-        fireImmediately: false 
+    { equalityFn: shallow }
+);
+
+// Subscribe to audio engine parameter changes
+const unsubscribers: (() => void)[] = [];
+
+const setupAudioSubscriptions = () => {
+    unsubscribers.forEach(unsub => unsub());
+    unsubscribers.length = 0;
+
+    const sub = (selector: (state: AppState) => any, callback: (value: any) => void) => {
+        unsubscribers.push(useStore.subscribe(selector, callback, { equalityFn: shallow }));
+    };
+
+    if (audioEngine) {
+        sub(s => s.preset.globalFxParams.reverb, p => audioEngine.updateReverb(p, useStore.getState().preset.bpm));
+        sub(s => s.preset.globalFxParams.delay, p => audioEngine.updateDelay(p, useStore.getState().preset.bpm));
+        sub(s => s.preset.globalFxParams.drive, p => audioEngine.updateDrive(p));
+        sub(s => s.preset.globalFxParams.character, p => audioEngine.updateCharacter(p));
+        sub(s => s.preset.globalFxParams.compressor, p => audioEngine.updateCompressor(p));
+        sub(s => s.preset.globalFxParams.masterFilter, p => audioEngine.updateMasterFilter(p));
+        sub(s => s.preset.globalFxParams.masterVolume, v => audioEngine.updateMasterVolume(v));
+
+        useStore.getState().preset.tracks.forEach(track => {
+            sub(s => s.preset.tracks.find(t=>t.id===track.id)?.volume, v => audioEngine.updateTrackVolume(track.id, v));
+            sub(s => s.preset.tracks.find(t=>t.id===track.id)?.pan, p => audioEngine.updateTrackPan(track.id, p));
+            sub(s => s.preset.tracks.find(t=>t.id===track.id)?.fxSends, s => {
+                Object.keys(s).forEach(fx => audioEngine.updateTrackFxSend(track.id, fx as keyof FXSends, s[fx as keyof FXSends]))
+            });
+        });
+    }
+};
+
+useStore.subscribe(state => state.audioEngineInstanceId, setupAudioSubscriptions);
+useStore.subscribe(state => state.preset.tracks.length, setupAudioSubscriptions);
+
+// Merged subscription from playbackStore
+useStore.subscribe(
+    (state) => state.isPlaying,
+    (isPlaying, prevIsPlaying) => {
+        const { midiSyncSource, isArrangementRecording, finalizeRecording, midiSyncOutput } = useStore.getState();
+
+        if (isPlaying && !prevIsPlaying) {
+            if (midiSyncSource === 'internal') {
+                if (sequencerTimerId) clearInterval(sequencerTimerId);
+                mainLoop(); 
+                sequencerTimerId = setInterval(mainLoop, schedulerInterval);
+            }
+        } else if (!isPlaying && prevIsPlaying) {
+            if (sequencerTimerId) clearInterval(sequencerTimerId);
+            sequencerTimerId = null;
+
+            if (isArrangementRecording) {
+                const { currentPlayheadTime } = useStore.getState();
+                finalizeRecording(currentPlayheadTime);
+            }
+            
+            if (midiSyncOutput !== 'none' && audioEngine) {
+                const output = audioEngine.getMidiOutputs().find(o => o.id === midiSyncOutput);
+                output?.send([0xFC]);
+            }
+        }
     }
 );

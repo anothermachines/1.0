@@ -36,6 +36,50 @@ export const APPEARANCE_THEMES_DEFINITIONS = {
             '--sequencer-step-dark': '#16181C',
         }
     },
+    'ghost': {
+        name: 'Ghost',
+        vars: {
+            '--accent-color': '#00d8ff',
+            '--accent-color-active': '#80ebff',
+            '--accent-rgb': '0, 216, 255',
+            '--bg-chassis': `
+                radial-gradient(ellipse 80% 50% at 50% 50%, rgba(200, 240, 255, 0.15), transparent),
+                linear-gradient(0deg, rgba(180, 210, 255, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(180, 210, 255, 0.05) 1px, transparent 1px),
+                #1a2035`,
+            '--bg-panel': 'rgba(240, 245, 255, 0.9)',
+            '--bg-panel-dark': 'rgba(210, 220, 240, 0.95)',
+            '--bg-control': '#343A46',
+            '--border-color': 'rgba(170, 190, 220, 0.5)',
+            '--border-color-light': 'rgba(200, 220, 255, 0.7)',
+            '--border-color-darker': 'rgba(150, 170, 200, 0.3)',
+            '--text-light': '#212529',
+            '--text-dark': '#000000',
+            '--text-muted': '#5A6470',
+            '--text-screen': 'var(--accent-color)',
+            '--text-screen-glow': '0 0 8px rgba(var(--accent-rgb), 0.7)',
+            '--color-mute': '#e53935',
+            '--font-main': "'Roboto', sans-serif",
+            '--font-mono': "'Roboto Mono', monospace",
+            '--shadow-deep': 'rgba(0,0,0,0.7)',
+            '--highlight-soft': 'rgba(0,0,0,0.1)',
+            '--pianoroll-white-key': '#495057',
+            '--pianoroll-white-key-gradient': '#343a40',
+            '--pianoroll-black-key': '#212529',
+            '--pianoroll-black-key-gradient': '#111315',
+            '--pianoroll-white-key-text': '#dee2e6',
+            '--pianoroll-black-key-text': '#adb5bd',
+            '--pianoroll-white-key-border': '#212529',
+            '--pianoroll-black-key-border': '#000000',
+            '--pianoroll-grid-bar': 'rgba(0,0,0,0.2)',
+            '--pianoroll-grid-beat': 'rgba(0,0,0,0.1)',
+            '--pianoroll-grid-step': 'rgba(0,0,0,0.05)',
+            '--pianoroll-scale-highlight-dark': 'rgba(0, 216, 255, 0.1)',
+            '--pianoroll-scale-highlight-light': 'rgba(0, 216, 255, 0.05)',
+            '--sequencer-step-light': 'rgba(255, 255, 255, 0.1)',
+            '--sequencer-step-dark': 'rgba(255, 255, 255, 0.05)',
+        }
+    },
     'studio-88': {
         name: "Studio '88",
         vars: {
@@ -309,6 +353,10 @@ export function applyTheme(themeKey: keyof typeof APPEARANCE_THEMES_DEFINITIONS)
     if (!theme) return;
 
     const root = document.body;
+    
+    // Add a class to the body for theme-specific CSS rules (like backdrop-filter)
+    root.className = themeKey;
+
     Object.entries(theme.vars).forEach(([key, value]) => {
         root.style.setProperty(key, value);
     });

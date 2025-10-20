@@ -76,7 +76,7 @@
       body {
         font-family: var(--font-main);
         background-color: var(--bg-chassis);
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+        background-image: var(--bg-chassis-image, url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"));
         color: var(--text-light);
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
@@ -123,6 +123,27 @@
               100% calc(var(--grid-key) * 12),  /* Octave lines */
               100% var(--grid-key);             /* Note lines */
       }
+      
+      /* --- Theme-specific overrides --- */
+      body.ghost main > div > div {
+        -webkit-backdrop-filter: blur(8px);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(200, 220, 255, 0.2);
+        box-shadow: 0 0 25px rgba(var(--accent-rgb), 0.2), 0 4px 12px rgba(0,0,0,0.4);
+      }
+      body.ghost .bg-\[\var\(--bg-panel\)\] {
+        background-color: var(--bg-panel) !important;
+      }
+      body.ghost .bg-\[\var\(--bg-chassis\)\] {
+        background-color: transparent !important;
+      }
+      body.ghost .text-\[\var\(--text-light\)\] {
+        color: var(--text-light) !important;
+      }
+      body.ghost .text-\[\var\(--text-muted\)\] {
+        color: var(--text-muted) !important;
+      }
+
 
       @keyframes pulse-glow {
         0%, 100% {

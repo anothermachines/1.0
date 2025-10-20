@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Track, StepState, PLocks, TrigCondition, TrackType } from '../types';
 import { useStore } from '../store/store';
-import { usePlaybackStore } from '../store/playbackStore';
 import Knob from './Knob';
 import { noteNameToMidi, midiToNoteName, getParamValue, isParamLocked, hasParameterLocks, getTrackValue, isTrackValueLocked, getSendValue, isSendLocked } from '../utils';
 import { useMidiMapping } from '../contexts/MidiContext';
@@ -68,11 +67,8 @@ const StepButton: React.FC<StepButtonProps> = React.memo(({
     const baseBg = isDarkGroup ? 'var(--sequencer-step-dark)' : 'var(--sequencer-step-light)';
     const baseShadow = 'inset 0 1px 1px rgba(0,0,0,0.5), inset 0 -1px 1px rgba(255,255,255,0.1)';
     
-    // Performance Optimization: Use opacity for velocity instead of animating box-shadow.
-    // A baseline opacity of 0.4 ensures even quiet notes are visible.
     const velocityOpacity = isActive ? 0.4 + (step.velocity * 0.6) : 0;
     
-    // Simplified, non-velocity-dependent outer glow for active steps.
     const outerGlow = isActive ? `0 0 8px 1px rgba(var(--accent-rgb), 0.5)` : 'none';
 
     return (
@@ -92,7 +88,6 @@ const StepButton: React.FC<StepButtonProps> = React.memo(({
                 }`} />
             )}
             
-            {/* Base Pad (Inactive state & Grouping) */}
             <div
                 className="absolute inset-0 rounded-md"
                 style={{
@@ -101,7 +96,6 @@ const StepButton: React.FC<StepButtonProps> = React.memo(({
                 }}
             />
 
-            {/* Active state Pad */}
             <div
                 className="absolute inset-0 rounded-md transition-opacity duration-100"
                 style={{
@@ -111,7 +105,6 @@ const StepButton: React.FC<StepButtonProps> = React.memo(({
                 }}
             />
 
-            {/* P-Lock / Condition Indicator */}
             {(hasPLocks || hasCondition) && !isOutOfBounds && (
                 <div
                     className="absolute w-1.5 h-1.5 rounded-full bottom-1.5 right-1.5"
@@ -123,7 +116,6 @@ const StepButton: React.FC<StepButtonProps> = React.memo(({
                 />
             )}
 
-            {/* Current Step Playhead (Glow) - More performant version */}
             {isCurrent && !isOutOfBounds && (
                 <div key={stepIndex} className="playhead-indicator" />
             )}
@@ -131,13 +123,12 @@ const StepButton: React.FC<StepButtonProps> = React.memo(({
     );
 });
 
-// Performance Optimization: Memoize the track row to prevent re-renders when other tracks change.
 const TrackRow = React.memo(({ track, currentPage, isSelected, isAudible, isDisabled }: { track: Track; currentPage: number; isSelected: boolean; isAudible: boolean; isDisabled: boolean; }) => {
-    const { handleStepClick, selectedPLockStep } = useStore(state => ({
+    const { handleStepClick, selectedPLockStep, currentStep } = useStore(state => ({
         handleStepClick: state.handleStepClick,
         selectedPLockStep: state.selectedPLockStep,
+        currentStep: state.currentStep,
     }), shallow);
-    const currentStep = usePlaybackStore(state => state.currentStep);
     const stepsForTrack = track.patterns[track.activePatternIndex] || [];
 
     const handleStepClickCallback = useCallback((trackId: number, stepIndex: number) => {
@@ -160,11 +151,11 @@ const TrackRow = React.memo(({ track, currentPage, isSelected, isAudible, isDisa
 
                     let borderClass = 'border-l ';
                     if (stepIndex % 16 === 0) {
-                        borderClass += 'border-neutral-500'; // Bar line
+                        borderClass += 'border-neutral-500';
                     } else if (stepIndex % 4 === 0) {
-                        borderClass += 'border-neutral-600'; // Beat line
+                        borderClass += 'border-neutral-600';
                     } else {
-                        borderClass += 'border-neutral-700/60'; // 16th line
+                        borderClass += 'border-neutral-700/60';
                     }
 
                     return (
@@ -194,12 +185,12 @@ const TrackRow = React.memo(({ track, currentPage, isSelected, isAudible, isDisa
 
 
 const SequencerComponent: React.FC = () => {
-  // Performance: Split state selection into smaller, more focused hooks.
   const tracks = useStore(state => state.preset?.tracks || []);
-  const { selectedTrackId, mutedTracks, soloedTrackId } = useStore(state => ({
+  const { selectedTrackId, mutedTracks, soloedTrackId, currentStep } = useStore(state => ({
     selectedTrackId: state.selectedTrackId,
     mutedTracks: state.mutedTracks,
     soloedTrackId: state.soloedTrackId,
+    currentStep: state.currentStep,
   }), shallow);
   const { isPLockModeActive, selectedPLockStep, centerView, euclideanMode, copiedPattern, isViewerMode, isSpectator, sequencerPage } = useStore(state => ({
     isPLockModeActive: state.isPLockModeActive,
@@ -216,7 +207,7 @@ const SequencerComponent: React.FC = () => {
     randomizeTrackPattern, startEuclideanMode, clearTrackPattern, clearAutomation, 
     toggleCenterView, updateEuclidean, applyEuclidean, cancelEuclidean, setParam, 
     setTrackPan, setFxSend, copyPattern, pastePattern, triggerViewerModeInteraction, 
-    setSequencerPage 
+    setSequencerPage, currentPlayheadTime
   } = useStore(state => ({
     togglePLockMode: state.togglePLockMode,
     selectPattern: state.selectPattern,
@@ -237,11 +228,9 @@ const SequencerComponent: React.FC = () => {
     pastePattern: state.pastePattern,
     triggerViewerModeInteraction: state.triggerViewerModeInteraction,
     setSequencerPage: state.setSequencerPage,
+    currentPlayheadTime: state.currentPlayheadTime,
   }), shallow);
 
-
-  const currentStep = usePlaybackStore(state => state.currentStep);
-  
   const [isPatternSelectorOpen, setIsPatternSelectorOpen] = useState(false);
   const patternSelectorRef = useRef<HTMLDivElement>(null);
   
@@ -277,8 +266,6 @@ const SequencerComponent: React.FC = () => {
   
   const activePattern = selectedTrack.patterns[selectedTrack.activePatternIndex];
 
-  const isMelodic = !['kick', 'hat'].includes(selectedTrack.type);
-
   const handleClearNoteLock = useCallback(() => {
       if (selectedPLockStep) {
           setStepProperty(selectedPLockStep.trackId, selectedPLockStep.stepIndex, 'notes', []);
@@ -286,7 +273,6 @@ const SequencerComponent: React.FC = () => {
   }, [selectedPLockStep, setStepProperty]);
   
   const handlePatternChange = (index: number) => {
-      const { currentPlayheadTime } = usePlaybackStore.getState();
       selectPattern(selectedTrackId, index, currentPlayheadTime);
       setIsPatternSelectorOpen(false);
   };
@@ -295,7 +281,6 @@ const SequencerComponent: React.FC = () => {
   const currentConditionString = JSON.stringify(currentCondition);
   const conditionOptions = TRIG_CONDITIONS.map(c => ({ label: c.label, value: JSON.stringify(c.value) }));
 
-  // Performance: Memoize callbacks for knobs
   const handlePLockConditionChange = useCallback((v: string) => {
       if(selectedPLockStep) setStepProperty(selectedPLockStep.trackId, selectedPLockStep.stepIndex, 'condition', JSON.parse(v))
   }, [selectedPLockStep, setStepProperty]);
@@ -318,15 +303,13 @@ const SequencerComponent: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col space-y-2">
-        {/* Toolbar */}
         <div className="flex flex-wrap justify-between items-center bg-[var(--bg-panel-dark)] p-2 rounded border border-[var(--border-color)] flex-shrink-0 gap-2">
             <div className='flex items-center space-x-2 justify-start'>
                  <button
                     onClick={toggleCenterView}
-                    disabled={!isMelodic}
                     title="Toggle Piano Roll"
-                    className={`hidden md:flex items-center justify-center px-2 py-1.5 text-xs font-bold rounded-sm border transition-all text-white disabled:opacity-50 disabled:cursor-not-allowed ${
-                        centerView === 'pianoRoll' && isMelodic
+                    className={`flex items-center justify-center px-2 py-1.5 text-xs font-bold rounded-sm border transition-all text-white ${
+                        centerView === 'pianoRoll'
                         ? 'bg-blue-500 border-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.5)]'
                         : 'bg-[var(--bg-control)] hover:bg-[var(--border-color)] border-[var(--border-color)]'}`}
                 >
@@ -442,7 +425,6 @@ const SequencerComponent: React.FC = () => {
             </div>
         </div>
         
-        {/* Main Grid Area */}
         <div className="flex-grow min-h-0 flex flex-col overflow-auto no-scrollbar bg-[var(--bg-chassis)] p-2 rounded-md border border-[var(--border-color)]" data-tour-id="sequencer-grid">
             {tracks.map(track => {
                 const isSelected = track.id === selectedTrackId;
@@ -465,7 +447,6 @@ const SequencerComponent: React.FC = () => {
         </div>
 
 
-        {/* P-Lock Bar */}
         <div className="flex flex-wrap justify-between items-center bg-[var(--bg-panel-dark)] p-1 rounded border border-[var(--border-color)] flex-shrink-0 gap-1">
              {euclideanMode && euclideanMode.trackId === selectedTrackId ? (
                 <div className="flex items-center space-x-2 w-full animate-fade-in px-2">

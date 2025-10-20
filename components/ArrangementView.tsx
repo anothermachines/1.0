@@ -1,7 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Preset, ArrangementClip, StepState } from '../types';
 import { useStore } from '../store/store';
-import { usePlaybackStore } from '../store/playbackStore';
 import { shallow } from 'zustand/shallow';
 import TrackHeader from './TrackHeader';
 
@@ -112,7 +111,7 @@ const LoopIcon: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 const Playhead: React.FC<{ pixelsPerBeat: number }> = ({ pixelsPerBeat }) => {
-    const currentPlayheadTime = usePlaybackStore(state => state.currentPlayheadTime);
+    const currentPlayheadTime = useStore(state => state.currentPlayheadTime);
     const secondsPerBeat = 60 / useStore.getState().preset.bpm;
     const playheadTimeInBeats = currentPlayheadTime / secondsPerBeat;
 
@@ -207,7 +206,8 @@ const ArrangementView: React.FC = () => {
     const { 
         preset, arrangementLoop, selectedTrackId, mutedTracks, soloedTrackId,
         moveClip, deleteClip, duplicateClip, addPatternClip,
-        resizeClip, setArrangementLoop, initializeArrangementLoop
+        resizeClip, setArrangementLoop, initializeArrangementLoop,
+        setPlayheadPosition, isPlaying, currentPlayheadTime
     } = useStore(state => ({
         preset: state.preset,
         arrangementLoop: state.arrangementLoop,
@@ -221,8 +221,6 @@ const ArrangementView: React.FC = () => {
         resizeClip: state.resizeClip,
         setArrangementLoop: state.setArrangementLoop,
         initializeArrangementLoop: state.initializeArrangementLoop,
-    }), shallow);
-    const { setPlayheadPosition, isPlaying, currentPlayheadTime } = usePlaybackStore(state => ({ 
         setPlayheadPosition: state.setPlayheadPosition,
         isPlaying: state.isPlaying,
         currentPlayheadTime: state.currentPlayheadTime,
@@ -259,7 +257,6 @@ const ArrangementView: React.FC = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [selectedClipId, deleteClip]);
 
-    // Auto-scroll logic
     useEffect(() => {
         if (isPlaying && isAutoScrolling && containerRef.current) {
             const container = containerRef.current;
@@ -336,17 +333,17 @@ const ArrangementView: React.FC = () => {
 
     const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
         if (!dragState.current) return;
-        setIsAutoScrolling(false); // Disable auto-scroll while dragging
+        setIsAutoScrolling(false);
         const dx = e.clientX - dragState.current.startX;
         const dBeats = dx / pixelsPerBeat;
-        const snapIncrement = 1; // Snap to beats.
+        const snapIncrement = 1;
         
         if (dragState.current.type === 'move') {
-            if (dragState.current.isDuplicating) return; // Duplication handled on pointer up
+            if (dragState.current.isDuplicating) return;
             const newUnsnappedStartTimeInBeats = Math.max(0, dragState.current.originalStartTime + dBeats);
             const newStartTimeInBeats = Math.round(newUnsnappedStartTimeInBeats / snapIncrement) * snapIncrement;
             moveClip(dragState.current.clipId, newStartTimeInBeats);
-        } else { // resize
+        } else {
             const newUnsnappedDurationInBeats = Math.max(snapIncrement, dragState.current.originalDuration + dBeats);
             const newDurationInBeats = Math.round(newUnsnappedDurationInBeats / snapIncrement) * snapIncrement;
             resizeClip(dragState.current.clipId, newDurationInBeats);
@@ -355,7 +352,7 @@ const ArrangementView: React.FC = () => {
 
     const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
         if (!dragState.current) return;
-        setIsAutoScrolling(true); // Re-enable auto-scroll after drag
+        setIsAutoScrolling(true);
 
         if (dragState.current.isDuplicating) {
             const originalClip = (preset.arrangementClips || []).find(c => c.id === dragState.current!.clipId);
@@ -387,7 +384,7 @@ const ArrangementView: React.FC = () => {
     };
 
     const visibleClips = useMemo(() => {
-        const buffer = 200; // pixels
+        const buffer = 200;
         const visibleStartBeats = (viewport.scrollLeft - buffer) / pixelsPerBeat;
         const visibleEndBeats = (viewport.scrollLeft + viewport.clientWidth + buffer) / pixelsPerBeat;
         return (preset.arrangementClips || []).filter(clip => 
@@ -397,7 +394,6 @@ const ArrangementView: React.FC = () => {
 
     return (
         <div className="h-full flex flex-col bg-[var(--bg-chassis)] text-xs">
-            {/* Toolbar */}
             <div className="flex-shrink-0 flex items-center justify-between p-1 border-b border-neutral-700">
                 <div className='flex items-center gap-2'>
                      <button
@@ -426,9 +422,8 @@ const ArrangementView: React.FC = () => {
             </div>
 
             <div className="flex-grow flex min-h-0">
-                {/* Track Headers */}
                 <div className="w-32 flex-shrink-0 bg-[var(--bg-panel-dark)] flex flex-col border-r border-neutral-700">
-                    <div className="h-8 flex-shrink-0 border-b border-neutral-700" /> {/* Spacer for timeline */}
+                    <div className="h-8 flex-shrink-0 border-b border-neutral-700" />
                     <div ref={headerContainerRef} className="overflow-y-hidden no-scrollbar">
                          <div style={{ height: `${preset.tracks.length * 64}px` }}>
                             {preset.tracks.map(track => {
@@ -450,9 +445,7 @@ const ArrangementView: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Timeline & Grid */}
                 <div className="flex-grow flex flex-col min-w-0">
-                    {/* Timeline */}
                     <div ref={timelineRef} onClick={handleTimelineClick} className="flex-shrink-0 h-8 bg-[var(--bg-panel-dark)] overflow-hidden relative cursor-pointer">
                         <div className="absolute h-full" style={{ width: `${totalDurationInBeats * pixelsPerBeat}px` }}>
                             {Array.from({ length: Math.ceil(totalDurationInBeats) }).map((_, i) => {
@@ -471,7 +464,6 @@ const ArrangementView: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Tracks */}
                     <div 
                         ref={containerRef} 
                         className={`flex-grow overflow-auto no-scrollbar ${addPatternMode ? 'cursor-crosshair' : ''}`} 
@@ -482,7 +474,6 @@ const ArrangementView: React.FC = () => {
                         onPointerUp={handlePointerUp}
                     >
                         <div className="relative" style={{ width: `${totalDurationInBeats * pixelsPerBeat}px`, height: `${preset.tracks.length * 64}px` }}>
-                            {/* Grid Lines */}
                             {preset.tracks.map((track, i) => (
                                 <div key={`h-line-${track.id}`} className="absolute w-full border-b border-neutral-800" style={{ top: `${(i + 1) * 64 - 1}px`, height: '1px' }} />
                             ))}
@@ -490,7 +481,6 @@ const ArrangementView: React.FC = () => {
                                 <div key={`v-line-${i}`} className={`absolute top-0 bottom-0 border-l ${i % 4 === 0 ? 'border-neutral-700' : 'border-neutral-800'}`} style={{ left: `${i * pixelsPerBeat}px` }} />
                             ))}
 
-                            {/* Clips */}
                             {visibleClips.map(clip => (
                                 <ArrangementClipComponent
                                     key={clip.id}

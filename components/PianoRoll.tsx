@@ -1,6 +1,5 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect, useLayoutEffect } from 'react';
 import { useStore } from '../store/store';
-import { usePlaybackStore } from '../store/playbackStore';
 import { Track, StepState } from '../types';
 import { midiToNoteName, noteNameToMidi } from '../utils';
 import { shallow } from 'zustand/shallow';
@@ -65,9 +64,11 @@ const PianoKey = React.memo(({ midiNote, scaleNotes, keyHeight, isPlaying, isFol
 });
 
 export const PianoRoll: React.FC = () => {
-    const { selectedTrackId, sequencerPage } = useStore(state => ({
+    const { selectedTrackId, sequencerPage, currentStep, isPlaying } = useStore(state => ({
         selectedTrackId: state.selectedTrackId,
         sequencerPage: state.sequencerPage,
+        currentStep: state.currentStep,
+        isPlaying: state.isPlaying,
     }), shallow);
     const track = useStore(state => state.preset?.tracks?.find(t => t.id === selectedTrackId));
     const { onStepChange, auditionNote, setSequencerPage } = useStore(state => ({
@@ -75,14 +76,12 @@ export const PianoRoll: React.FC = () => {
         auditionNote: state.auditionNote,
         setSequencerPage: state.setSequencerPage,
     }), shallow);
-    const currentStep = usePlaybackStore(state => state.currentStep);
-    const isPlaying = usePlaybackStore(state => state.isPlaying);
     
     if (!track) {
         return (
             <div className="h-full flex flex-col bg-[var(--bg-panel-dark)] rounded-md border border-[var(--border-color)] text-xs min-h-0">
                 <div className="flex-grow flex items-center justify-center text-neutral-500">
-                    Select a melodic track to display Piano Roll.
+                    Select a track to display Piano Roll.
                 </div>
             </div>
         );
@@ -257,7 +256,6 @@ export const PianoRoll: React.FC = () => {
     const processNoteInteraction = (stepIndex: number, midiNote: number) => {
         if (!drawState.current) return;
         
-        // FIX: Prevent adding notes that are out of scale when in fold mode.
         if (isFolded && !scaleNotes.has(midiNote % 12)) {
             return;
         }
@@ -280,7 +278,6 @@ export const PianoRoll: React.FC = () => {
         onStepChange(selectedTrackId, stepIndex, 'notes', newNotes);
         onStepChange(selectedTrackId, stepIndex, 'active', newNotes.length > 0);
         
-        // If the step is now inactive, reset its note-specific properties to default
         if (newNotes.length === 0) {
             onStepChange(selectedTrackId, stepIndex, 'velocity', 1.0);
             onStepChange(selectedTrackId, stepIndex, 'duration', 1);
@@ -472,7 +469,6 @@ export const PianoRoll: React.FC = () => {
                         <div className="relative w-full" style={{ height: `${TOTAL_NOTES * keyHeight}px`, '--grid-step': `${stepWidth}px`, '--grid-key': `${keyHeight}px` }}>
                             <div className="absolute inset-0 pianoroll-grid-pattern opacity-60" />
 
-                            {/* Scale Highlighting */}
                             <div className="absolute inset-0 pointer-events-none">
                                 {Array.from({ length: endNoteIndex - startNoteIndex }).map((_, i) => {
                                     const noteIndex = startNoteIndex + i;
@@ -495,7 +491,6 @@ export const PianoRoll: React.FC = () => {
                                 })}
                             </div>
 
-                            {/* Notes */}
                             {visibleNotes.filter(({ index }) => {
                                 const startStepForPage = sequencerPage * 16;
                                 const endStepForPage = startStepForPage + 16;
@@ -528,14 +523,12 @@ export const PianoRoll: React.FC = () => {
                                     </div>
                                 );
                             })}
-                            {/* Playhead */}
                             {globalCurrentPage === sequencerPage && (
                                 <div className="absolute top-0 bottom-0 w-0.5 bg-yellow-400/80 pointer-events-none z-20" style={{ transform: `translateX(${(currentStep % 16) * stepWidth}px)`, willChange: 'transform' }} />
                             )}
                         </div>
                     </div>
                 </div>
-                {/* Velocity Lane */}
                 <div className="flex-shrink-0 border-t-2 border-neutral-600">
                     <div onPointerDown={handleVelocityResize} className="w-full h-1 bg-neutral-600 cursor-row-resize hover:bg-yellow-400"/>
                     <div className="flex" style={{ height: `${velocityLaneHeight}px` }}>

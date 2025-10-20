@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useStore } from './store/store';
-import { usePlaybackStore } from './store/playbackStore';
 import { Sequencer } from './components/Sequencer';
 import InstrumentEditor from './components/InstrumentEditor';
 import EffectsRack from './components/EffectsRack';
@@ -147,18 +146,14 @@ const MappableButton: React.FC<{
 };
 
 const TransportControls: React.FC = () => {
-  const { mainView, setMainView, midiSyncSource, isAudioReady, isViewerMode, triggerViewerModeInteraction } = useStore(state => ({
+  const { mainView, setMainView, midiSyncSource, isAudioReady, isPlaying, togglePlay, stop } = useStore(state => ({
     mainView: state.mainView,
     setMainView: state.setMainView,
     midiSyncSource: state.midiSyncSource,
     isAudioReady: state.isAudioReady,
-    isViewerMode: state.isViewerMode,
-    triggerViewerModeInteraction: state.triggerViewerModeInteraction,
-  }), shallow);
-  const { isPlaying, togglePlay, stop } = usePlaybackStore(state => ({
-      isPlaying: state.isPlaying,
-      togglePlay: state.togglePlay,
-      stop: state.stop
+    isPlaying: state.isPlaying,
+    togglePlay: state.togglePlay,
+    stop: state.stop
   }), shallow);
 
   const isExternalSync = midiSyncSource !== 'internal';
@@ -174,17 +169,10 @@ const TransportControls: React.FC = () => {
         PATTERN
       </MappableButton>
        <MappableButton
-        onClick={() => {
-            if (isViewerMode) {
-                triggerViewerModeInteraction();
-            } else {
-                setMainView('song');
-            }
-        }} 
+        onClick={() => setMainView('song')} 
         mapInfo={{ path: 'transport.view.song', label: 'Song View' }}
-        className={`px-3 py-1 text-xs font-bold rounded-sm border ${isViewerMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+        className="px-3 py-1 text-xs font-bold rounded-sm border"
         isActive={mainView === 'song'}
-        disabled={isViewerMode}
       >
         SONG
       </MappableButton>
@@ -203,36 +191,36 @@ const TransportControls: React.FC = () => {
 
 
 const CenterPanel: React.FC = () => {
-  const { centerView, selectedTrack } = useStore(state => ({
+  const { centerView } = useStore(state => ({
     centerView: state.centerView,
-    selectedTrack: state.preset?.tracks?.find(t => t.id === state.selectedTrackId)
   }), shallow);
-
-  const isMelodic = useMemo(() => {
-    if (!selectedTrack) return false;
-    // Check against all non-percussive new engines
-    return !['kick', 'hat', 'midi'].includes(selectedTrack.type);
-  }, [selectedTrack]);
 
   return (
     <div className="bg-[var(--bg-panel)] rounded-md border border-[var(--border-color)]/50 flex-grow flex flex-col min-h-0 h-full">
-      {centerView === 'pianoRoll' && isMelodic ? <PianoRoll /> : <Mixer />}
+      {centerView === 'pianoRoll' ? <PianoRoll /> : <Mixer />}
     </div>
   );
 };
 
 const AppContent: React.FC = () => {
-    // Performance: Split selectors into smaller, more focused hooks.
-    const init = useStore(state => state.init);
-    const mainView = useStore(state => state.mainView);
-    const { showWelcomeScreen, hideWelcomeScreen, showQuickStart, toggleQuickStart, showFullscreenPrompt } = useStore(state => ({
+    // Consolidated state selection
+    const { 
+        init, startAudio, isAudioReady, mainView, showWelcomeScreen, hideWelcomeScreen, showQuickStart, toggleQuickStart, showFullscreenPrompt,
+        isPresetManagerOpen, isExportModalOpen, isStoreOpen, isSettingsModalOpen, isManualOpen, isLicenseModalOpen, isShareJamOpen,
+        togglePresetManager, toggleExportModal, toggleStore, toggleSettingsModal, toggleManual, toggleLicenseModal, toggleShareJamModal,
+        appearanceTheme, setAppearanceTheme, accentTheme, setAccentTheme, isExporting, exportProgress,
+        setMidiOutputs, setAudioOutputDevices, audioEngineInstanceId, isViewerMode,
+        selectedPLockStep, copyStep, pasteStep, copyPattern, pastePattern, togglePlay
+    } = useStore(state => ({
+        init: state.init,
+        startAudio: state.startAudio,
+        isAudioReady: state.isAudioReady,
+        mainView: state.mainView,
         showWelcomeScreen: state.showWelcomeScreen,
         hideWelcomeScreen: state.hideWelcomeScreen,
         showQuickStart: state.showQuickStart,
         toggleQuickStart: state.toggleQuickStart,
         showFullscreenPrompt: state.showFullscreenPrompt,
-    }), shallow);
-    const { isPresetManagerOpen, isExportModalOpen, isStoreOpen, isSettingsModalOpen, isManualOpen, isLicenseModalOpen, isShareJamOpen } = useStore(state => ({
         isPresetManagerOpen: state.isPresetManagerOpen,
         isExportModalOpen: state.isExportModalOpen,
         isStoreOpen: state.isStoreOpen,
@@ -240,8 +228,6 @@ const AppContent: React.FC = () => {
         isManualOpen: state.isManualOpen,
         isLicenseModalOpen: state.isLicenseModalOpen,
         isShareJamOpen: state.isShareJamOpen,
-    }), shallow);
-     const { togglePresetManager, toggleExportModal, toggleStore, toggleSettingsModal, toggleManual, toggleLicenseModal, toggleShareJamModal } = useStore(state => ({
         togglePresetManager: state.togglePresetManager,
         toggleExportModal: state.toggleExportModal,
         toggleStore: state.toggleStore,
@@ -249,41 +235,38 @@ const AppContent: React.FC = () => {
         toggleManual: state.toggleManual,
         toggleLicenseModal: state.toggleLicenseModal,
         toggleShareJamModal: state.toggleShareJamModal,
-    }), shallow);
-    const { appearanceTheme, setAppearanceTheme, accentTheme, setAccentTheme } = useStore(state => ({
         appearanceTheme: state.appearanceTheme,
         setAppearanceTheme: state.setAppearanceTheme,
         accentTheme: state.accentTheme,
         setAccentTheme: state.setAccentTheme,
-    }), shallow);
-    const { isExporting, exportProgress } = useStore(state => ({
         isExporting: state.isExporting,
-        exportProgress: state.exportProgress
-    }), shallow);
-    const { setMidiOutputs, setAudioOutputDevices, audioEngineInstanceId, isViewerMode } = useStore(state => ({
+        exportProgress: state.exportProgress,
         setMidiOutputs: state.setMidiOutputs,
         setAudioOutputDevices: state.setAudioOutputDevices,
         audioEngineInstanceId: state.audioEngineInstanceId,
         isViewerMode: state.isViewerMode,
-    }), shallow);
-     const { selectedPLockStep, copyStep, pasteStep, copyPattern, pastePattern } = useStore(state => ({
         selectedPLockStep: state.selectedPLockStep,
         copyStep: state.copyStep,
         pasteStep: state.pasteStep,
         copyPattern: state.copyPattern,
         pastePattern: state.pastePattern,
+        togglePlay: state.togglePlay,
     }), shallow);
-
+    
     const midiContext = React.useContext(MidiContext);
-    const togglePlay = usePlaybackStore(state => state.togglePlay);
 
     useEffect(() => { init(); }, [init]);
+
+    // Combined handler for starting the app
+    const handleStart = useCallback((dontShowAgain: boolean) => {
+        hideWelcomeScreen(dontShowAgain);
+        startAudio();
+    }, [hideWelcomeScreen, startAudio]);
 
     useEffect(() => {
         const getDevices = async () => {
             if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
                 try {
-                    // Request permission first, if not already granted. This helps get device labels.
                     await navigator.mediaDevices.getUserMedia({ audio: true }); 
                     const devices = await navigator.mediaDevices.enumerateDevices();
                     const audioOutputs = devices
@@ -308,7 +291,6 @@ const AppContent: React.FC = () => {
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             const target = e.target as HTMLElement;
-            // Ignore if typing in an input, textarea, or select
             if (
                 target.tagName === 'INPUT' ||
                 target.tagName === 'TEXTAREA' ||
@@ -321,7 +303,7 @@ const AppContent: React.FC = () => {
             if (e.code === 'Space') {
                 e.preventDefault();
                 togglePlay();
-                return; // Prevent other shortcuts from firing with space
+                return;
             }
 
             if (e.ctrlKey || e.metaKey) {
@@ -364,9 +346,23 @@ const AppContent: React.FC = () => {
         }
     }, [accentTheme]);
 
+    if (!isAudioReady && !showWelcomeScreen) {
+        return (
+            <div 
+                className="fixed inset-0 bg-black/90 z-[200] flex items-center justify-center cursor-pointer text-white font-mono"
+                onClick={startAudio}
+            >
+                <div className="text-center p-8 rounded-lg border-2 border-dashed border-[var(--accent-color)]" style={{ animation: 'pulse-glow 2s infinite ease-in-out' }}>
+                    <h2 className="text-2xl font-bold mb-2">CLICK TO START AUDIO ENGINE</h2>
+                    <p className="text-neutral-400 font-sans">Browser requires user interaction to enable sound.</p>
+                </div>
+            </div>
+        );
+    }
+    
     return (
     <>
-        {showWelcomeScreen && <WelcomeScreen onStart={hideWelcomeScreen} />}
+        {showWelcomeScreen && <WelcomeScreen onStart={handleStart} />}
         {showQuickStart && <QuickStartGuide onFinish={() => toggleQuickStart(false)} />}
         {isPresetManagerOpen && <PresetManager />}
         {isExportModalOpen && <ExportManager />}
