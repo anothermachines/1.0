@@ -1371,7 +1371,18 @@ export const useStore = create<AppState & AppActions>()(
                         const result = e.target?.result as string;
                         const newPreset = JSON.parse(result);
                         if (newPreset.bpm && newPreset.tracks) {
+                            set(state => {
+                                const existingIndex = state.presets.findIndex(p => p.name === newPreset.name);
+                                if (existingIndex > -1) {
+                                    // Overwrite existing project with the same name
+                                    state.presets[existingIndex] = newPreset;
+                                } else {
+                                    // Add as a new project
+                                    state.presets.push(newPreset);
+                                }
+                            });
                             get().loadPreset(newPreset);
+                            get().addNotification({ type: 'success', message: `Project "${newPreset.name}" imported.` });
                         } else {
                             get().addNotification({ type: 'error', message: 'Invalid project file format.' });
                         }

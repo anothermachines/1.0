@@ -94,7 +94,7 @@ const LicenseModal: React.FC = () => {
                         {/* Monthly Plan */}
                         <div className="bg-neutral-800/50 rounded-lg border border-neutral-700 p-6 flex flex-col items-center text-center transition-transform hover:scale-105">
                             <h4 className="text-lg font-bold text-neutral-200 uppercase">Monthly</h4>
-                            <p className="text-4xl font-bold text-white my-2">$9.99</p>
+                            <p className="text-4xl font-bold text-white my-2">€9.99</p>
                             <p className="text-xs text-neutral-400 mb-6">per month</p>
                             <a href="https://anothermachines.gumroad.com/l/fm8r?variant=Monthly" target="_blank" rel="noopener noreferrer" className="w-full block px-4 py-3 text-base font-bold rounded-md bg-neutral-600 hover:bg-neutral-500 border border-neutral-500 text-white transition-colors">
                                 Choose Monthly
@@ -103,7 +103,7 @@ const LicenseModal: React.FC = () => {
                         {/* Quarterly Plan */}
                         <div className="bg-neutral-800/50 rounded-lg border border-neutral-700 p-6 flex flex-col items-center text-center transition-transform hover:scale-105">
                             <h4 className="text-lg font-bold text-neutral-200 uppercase">Quarterly</h4>
-                            <p className="text-4xl font-bold text-white my-2">$24.99</p>
+                            <p className="text-4xl font-bold text-white my-2">€24.99</p>
                             <p className="text-xs text-neutral-400 mb-6">per 3 months (Save 15%)</p>
                              <a href="https://anothermachines.gumroad.com/l/fm8r?variant=Quarterly" target="_blank" rel="noopener noreferrer" className="w-full block px-4 py-3 text-base font-bold rounded-md bg-neutral-600 hover:bg-neutral-500 border border-neutral-500 text-white transition-colors">
                                 Choose Quarterly
@@ -113,7 +113,7 @@ const LicenseModal: React.FC = () => {
                         <div className="bg-yellow-500/10 rounded-lg border-2 border-yellow-400 p-6 flex flex-col items-center text-center relative overflow-hidden transition-transform hover:scale-105">
                             <div className="absolute top-0 right-0 bg-yellow-400 text-black text-[10px] font-bold uppercase px-3 py-1 rounded-bl-lg">Best Value</div>
                             <h4 className="text-lg font-bold text-yellow-300 uppercase">Annual</h4>
-                            <p className="text-4xl font-bold text-white my-2">$79.99</p>
+                            <p className="text-4xl font-bold text-white my-2">€79.99</p>
                             <p className="text-xs text-neutral-400 mb-6">per year (Save 33%)</p>
                             <a href="https://anothermachines.gumroad.com/l/fm8r?variant=Annual%20(Best%20Value)" target="_blank" rel="noopener noreferrer" className="w-full block px-4 py-3 text-base font-bold rounded-md bg-yellow-500 hover:bg-yellow-400 border border-yellow-400 text-black transition-colors shadow-[0_0_15px_rgba(250,204,21,0.4)]">
                                 Choose Annual
