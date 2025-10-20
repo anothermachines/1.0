@@ -544,7 +544,9 @@ async function renderPatternAudio(
 
             engine.updateMasterFilter({ type: 'lowpass', cutoff: 20000, resonance: 1 });
             engine.updateCompressor({ ...preset.globalFxParams.compressor, enabled: false, threshold: 0, makeup: 0 });
-            engine.updateMasterVolume(preset.globalFxParams.masterVolume);
+            
+            // Apply significant gain before the final limiter stage in the engine
+            engine.updateMasterVolume(2.5);
 
             preset.tracks.forEach(t => {
                 if (t.id !== track.id) {
@@ -565,7 +567,60 @@ async function renderPatternAudio(
                 const stepState = track.patterns[track.activePatternIndex][patternStepIndex];
                 engine.playStep(track, stepState, time, time, 0);
             }
-            const renderedBuffer = await offlineCtx.startRendering();
+
+            let renderedBuffer = await offlineCtx.startRendering();
+            
+            // --- 1. TRIM LEADING SILENCE ---
+            const trimThreshold = 0.0001;
+            let firstSample = -1;
+
+            for (let channel = 0; channel < renderedBuffer.numberOfChannels; channel++) {
+                const data = renderedBuffer.getChannelData(channel);
+                for (let j = 0; j < data.length; j++) {
+                    if (Math.abs(data[j]) > trimThreshold) {
+                        if (firstSample === -1 || j < firstSample) {
+                            firstSample = j;
+                        }
+                        break; // Found first sound in this channel, move to next channel
+                    }
+                }
+            }
+
+            if (firstSample > 0 && firstSample < renderedBuffer.length) {
+                const trimmedLength = renderedBuffer.length - firstSample;
+                const tempCtx = new OfflineAudioContext(renderedBuffer.numberOfChannels, trimmedLength, renderedBuffer.sampleRate);
+                const trimmedBuffer = tempCtx.createBuffer(renderedBuffer.numberOfChannels, trimmedLength, renderedBuffer.sampleRate);
+                for (let channel = 0; channel < renderedBuffer.numberOfChannels; channel++) {
+                    const channelData = renderedBuffer.getChannelData(channel).slice(firstSample);
+                    trimmedBuffer.copyToChannel(channelData, channel);
+                }
+                renderedBuffer = trimmedBuffer;
+            }
+
+            // --- 2. NORMALIZE AUDIO ---
+            let peak = 0;
+            for (let channel = 0; channel < renderedBuffer.numberOfChannels; channel++) {
+                const data = renderedBuffer.getChannelData(channel);
+                for (let j = 0; j < data.length; j++) {
+                    const absValue = Math.abs(data[j]);
+                    if (absValue > peak) {
+                        peak = absValue;
+                    }
+                }
+            }
+            
+            if (peak > 0) {
+                const gain = 0.98 / peak; // Target -0.1dBFS to be safe
+                const normalizeCtx = new OfflineAudioContext(renderedBuffer.numberOfChannels, renderedBuffer.length, renderedBuffer.sampleRate);
+                const source = normalizeCtx.createBufferSource();
+                source.buffer = renderedBuffer;
+                const gainNode = normalizeCtx.createGain();
+                gainNode.gain.value = gain;
+                source.connect(gainNode).connect(normalizeCtx.destination);
+                source.start();
+                renderedBuffer = await normalizeCtx.startRendering();
+            }
+
             zip.file(`${track.name}_${options.includeMasterFx ? 'wet' : 'dry'}.wav`, audioBufferToWav(renderedBuffer));
         }
 
@@ -831,8 +886,14 @@ export const useStore = create<AppState & AppActions>()(
                     audioEngine.updateCompressor(preset.globalFxParams.compressor);
                     audioEngine.updateMasterVolume(preset.globalFxParams.masterVolume);
                     
-                    if (context instanceof AudioContext && 'setSinkId' in context) {
-                        (context as any).setSinkId(selectedAudioOutputId);
+                    if (context instanceof AudioContext && 'setSinkId' in context && selectedAudioOutputId !== 'default') {
+                        try {
+                            await (context as any).setSinkId(selectedAudioOutputId);
+                        } catch (err) {
+                            console.error(`Failed to set audio output device to ${selectedAudioOutputId}:`, err);
+                            set({ selectedAudioOutputId: 'default' });
+                            get().addNotification({ type: 'error', message: 'Could not switch audio device. Reverting to default.' });
+                        }
                     }
                     
                     set(state => { 

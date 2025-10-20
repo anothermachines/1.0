@@ -99,7 +99,9 @@ self.onmessage = async (e) => {
         engine.updateCharacter({ ...preset.globalFxParams.character, mix: 0 });
         engine.updateMasterFilter({ type: 'lowpass', cutoff: 20000, resonance: 1 });
         engine.updateCompressor({ ...preset.globalFxParams.compressor, enabled: false, threshold: 0, makeup: 0 });
-        engine.updateMasterVolume(1.0);
+        
+        // Apply significant gain before the final limiter stage in the engine
+        engine.updateMasterVolume(2.5);
 
         preset.tracks.forEach(t => {
             if (t.id !== trackToRenderId) {
@@ -146,7 +148,60 @@ self.onmessage = async (e) => {
             }
         });
 
-        const renderedBuffer = await offlineCtx.startRendering();
+        let renderedBuffer = await offlineCtx.startRendering();
+        
+        // --- 1. TRIM LEADING SILENCE ---
+        const trimThreshold = 0.0001;
+        let firstSample = -1;
+
+        for (let i = 0; i < renderedBuffer.numberOfChannels; i++) {
+            const data = renderedBuffer.getChannelData(i);
+            for (let j = 0; j < data.length; j++) {
+                if (Math.abs(data[j]) > trimThreshold) {
+                    if (firstSample === -1 || j < firstSample) {
+                        firstSample = j;
+                    }
+                    break; 
+                }
+            }
+        }
+        
+        if (firstSample > 0 && firstSample < renderedBuffer.length) {
+            const trimmedLength = renderedBuffer.length - firstSample;
+            const tempCtx = new OfflineAudioContext(renderedBuffer.numberOfChannels, trimmedLength, renderedBuffer.sampleRate);
+            const trimmedBuffer = tempCtx.createBuffer(renderedBuffer.numberOfChannels, trimmedLength, renderedBuffer.sampleRate);
+            for (let i = 0; i < renderedBuffer.numberOfChannels; i++) {
+                const channelData = renderedBuffer.getChannelData(i).slice(firstSample);
+                trimmedBuffer.copyToChannel(channelData, i);
+            }
+            renderedBuffer = trimmedBuffer;
+        }
+
+
+        // --- 2. NORMALIZE AUDIO ---
+        let peak = 0;
+        for (let i = 0; i < renderedBuffer.numberOfChannels; i++) {
+            const data = renderedBuffer.getChannelData(i);
+            for (let j = 0; j < data.length; j++) {
+                const absValue = Math.abs(data[j]);
+                if (absValue > peak) {
+                    peak = absValue;
+                }
+            }
+        }
+
+        if (peak > 0) {
+            const gain = 0.98 / peak; // Target -0.1dBFS
+            const normalizeCtx = new OfflineAudioContext(renderedBuffer.numberOfChannels, renderedBuffer.length, renderedBuffer.sampleRate);
+            const source = normalizeCtx.createBufferSource();
+            source.buffer = renderedBuffer;
+            const gainNode = normalizeCtx.createGain();
+            gainNode.gain.value = gain;
+            source.connect(gainNode).connect(normalizeCtx.destination);
+            source.start();
+            renderedBuffer = await normalizeCtx.startRendering();
+        }
+
         const wavData = audioBufferToWav(renderedBuffer);
 
         self.postMessage({ jobId, trackName: track.name, wavData, type: 'stem-done' }, [wavData]);

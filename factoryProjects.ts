@@ -179,10 +179,9 @@ export const ethericDub: Preset = {
         { ...deepClone(INITIAL_TRACKS[0]), name: 'Dub Thump', params: { ...INITIAL_KICK_PARAMS, tune: 36, decay: 1.1, impact: 70, tone: 10, character: 15 }, patterns: [createPatternFromSequence([1,null,null,null,1,null,null,null,1,null,null,null,1,null,null,null], 'A1')], volume: 0.5 },
         { ...deepClone(INITIAL_TRACKS[1]), name: 'Rim Echo', params: { ...INITIAL_RESON_PARAMS, pitch: 70, structure: 90, brightness: 9000, decay: 0.95, material: 5, exciter_type: 'impulse', ampEnv: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.05 } }, type: 'reson', patterns: [createPatternFromSequence([null,null,null,null,0.8,null,null,null,null,null,null,null,0.8,null,null,null], 'A5')], fxSends: { delay: 0.9, reverb: 0.6, drive: 0, sidechain: 0 } },
         { ...deepClone(INITIAL_TRACKS[2]), name: 'Sub Roller', params: { ...INITIAL_RUIN_PARAMS, pitch: 34, algorithm: 'feedback_pm', timbre: 25, drive: 5, fold: 0, attack: 0.01, decay: 0.3 }, patternLength: 32, patterns: [createPatternFromSequence([0.9,null,0.8,null,null,null,null,null,0.9,null,null,0.8,null,null,null,null,0.9,null,0.8,null,null,null,null,null,0.9,null,0.8,null,null,null,null,null], 'F#1')], fxSends: { sidechain: 1.0, reverb: 0.2, drive: 0.1, delay: 0.3 }, volume: 0.4 },
-        { ...deepClone(INITIAL_TRACKS[3]), name: 'Washed Chord', params: { ...INITIAL_ARTIFICE_PARAMS, osc1_shape: 20, osc2_shape: 80, osc2_pitch: 3, osc_mix: -15, filter_cutoff: 900, filter_res: 11, ampEnv: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.3 }, filterEnvAmount: 1500, filterEnv: { attack: 0.02, decay: 0.3, sustain: 0, release: 0.2} }, type: 'artifice', patterns: [(() => {
+        { ...deepClone(INITIAL_TRACKS[3]), name: 'Washed Chord', params: { ...INITIAL_ARTIFICE_PARAMS, osc1_shape: 20, osc2_shape: 80, osc2_pitch: 4, osc_mix: -15, filter_cutoff: 900, filter_res: 11, ampEnv: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.3 }, filterEnvAmount: 1500, filterEnv: { attack: 0.02, decay: 0.3, sustain: 0, release: 0.2} }, type: 'artifice', patterns: [(() => {
             const pattern = createPatternFromSequence(Array(16).fill(null).map((_, i) => [2, 10].includes(i) ? 0.7 : null), 'F#3');
             pattern[2].pLocks = { artificeParams: { filter_cutoff: 4000 } };
-            // FIX: Corrected p-lock for Artifice engine. It uses flat properties `filter_cutoff` and `filter_res`, not a nested `filter` object.
             pattern[10].pLocks = { artificeParams: { filter_cutoff: 600, filter_res: 15 } };
             return pattern;
         })()], fxSends: { delay: 0.8, reverb: 0.9, drive: 0, sidechain: 0.2 } },
@@ -238,8 +237,7 @@ export const subterraneanSignal: Preset = {
             const pattern = createPatternFromSequence(Array(32).fill(null), 'A#3');
             pattern[5].active = true; pattern[5].velocity = 0.8; pattern[5].notes = ['A#3', 'D4', 'F4'];
             pattern[19].active = true; pattern[19].velocity = 0.9; pattern[19].notes = ['A#3', 'D4', 'F4'];
-            // FIX: The p-locked filter object was missing the 'type' and 'resonance' properties required by the FilterParams type.
-            pattern[19].pLocks = { arcaneParams: { filter: { type: 'lowpass', cutoff: 3000, resonance: 9 } } };
+            pattern[19].pLocks = { arcaneParams: { filter: { type: 'lowpass', cutoff: 3000, resonance: 4 } } };
             return pattern;
         })()], patternLength: 32, fxSends: { delay: 0.9, reverb: 0.9, drive: 0, sidechain: 0.3 }, volume: 0.3 },
         { ...deepClone(INITIAL_TRACKS[5]), name: 'SS - Pitched Perc', type: 'reson', params: { ...INITIAL_RESON_PARAMS, pitch: 62, structure: 50, brightness: 13000, decay: 0.9, material: 70, exciter_type: 'impulse', ampEnv: {decay: 0.07, sustain: 0, release: 0.05} }, patternLength: 9, patterns: [createPatternFromSequence([null,0.8,null,0.8,null,0.8,null,0.8,null], 'D5')], fxSends: { delay: 0.8, reverb: 0.6, drive: 0, sidechain: 0.1 }, volume: 0.32 },
