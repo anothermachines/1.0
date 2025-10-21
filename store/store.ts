@@ -683,7 +683,15 @@ export const useStore = create<AppState & AppActions>()(
                     if (licenseKey) {
                         get().setLicenseKey(licenseKey, true);
                     } else {
-                        set({ preset: deepClone(DEMO_DEFAULT_PROJECT), isViewerMode: true });
+                        set(state => {
+                            state.preset = deepClone(DEMO_DEFAULT_PROJECT);
+                            state.isViewerMode = true;
+                            // In viewer mode, ensure "Blank Project" is always available.
+                            const hasBlankProject = state.presets.some(p => p.name === DEMO_DEFAULT_PROJECT.name);
+                            if (!hasBlankProject) {
+                                state.presets.unshift(deepClone(DEMO_DEFAULT_PROJECT));
+                            }
+                        });
                     }
                     
                     const dontShowWelcome = localStorage.getItem('fm8r-hide-welcome') === 'true';
