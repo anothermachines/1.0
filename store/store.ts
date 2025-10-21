@@ -403,7 +403,7 @@ interface AppActions {
 // --- INITIAL STATE ---
 
 const initialAppState: AppState = {
-    preset: deepClone(LICENSED_DEFAULT_PROJECT),
+    preset: deepClone(DEMO_DEFAULT_PROJECT),
     selectedTrackId: 0,
     mutedTracks: [],
     soloedTrackId: null,
