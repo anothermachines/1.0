@@ -217,9 +217,10 @@ export const PianoRoll: React.FC = () => {
     }, []);
 
     const getCoordsFromEvent = (e: React.PointerEvent<HTMLElement>): [number, number] | null => {
-        const rect = gridRef.current!.getBoundingClientRect();
+        if (!gridRef.current) return null;
+        const rect = gridRef.current.getBoundingClientRect();
         const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top + gridRef.current!.scrollTop;
+        const y = e.clientY - rect.top + gridRef.current.scrollTop;
         const stepIndexOnPage = Math.floor(x / stepWidth);
         const stepIndex = stepIndexOnPage + sequencerPage * 16;
         const noteIndex = Math.floor(y / keyHeight);

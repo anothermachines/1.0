@@ -41,8 +41,6 @@ const EditorHeader: React.FC<{
         isViewerMode: state.isViewerMode,
     }), shallow);
     
-    const [isMenuOpen, setIsMenuOpen] = useState(false);
-    const menuRef = useRef<HTMLDivElement>(null);
     const [isEditingName, setIsEditingName] = useState(false);
     const [editName, setEditName] = useState(trackName);
 
@@ -67,36 +65,15 @@ const EditorHeader: React.FC<{
     };
 
     const isRecording = automationRecording?.trackId === trackId;
-    const recordingMode = automationRecording?.mode;
-
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-                setIsMenuOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
 
     const handleRecClick = () => {
         if (isRecording) {
             stopAutomationRecording();
         } else {
-            setIsMenuOpen(prev => !prev);
+            startAutomationRecording(trackId);
         }
     };
-
-    const handleModeSelect = (mode: 'overwrite' | 'overdub') => {
-        startAutomationRecording(trackId, mode);
-        setIsMenuOpen(false);
-    };
     
-    const handleClear = () => {
-        clearAutomation(trackId);
-        setIsMenuOpen(false);
-    }
-
     return (
         <div className="bg-[var(--bg-panel-dark)] p-2 border-b border-[var(--border-color)] flex items-center justify-between flex-shrink-0">
             <h2 className="text-sm font-bold text-[var(--text-light)] uppercase tracking-widest flex items-center">
@@ -115,7 +92,7 @@ const EditorHeader: React.FC<{
                 )}
                 <span className="ml-2">Editor</span>
             </h2>
-            <div className="relative" ref={menuRef}>
+            <div className="relative">
                 <button
                     onClick={handleRecClick}
                     className={`px-3 py-1 text-xs font-bold rounded-sm border transition-all text-white w-32 ${
@@ -124,16 +101,8 @@ const EditorHeader: React.FC<{
                         : 'bg-neutral-600 hover:bg-neutral-500 border-neutral-500'
                     }`}
                 >
-                    {isRecording ? `REC: ${recordingMode?.toUpperCase()}` : 'REC AUTOM'}
+                    {isRecording ? 'RECORDING' : 'REC AUTOM'}
                 </button>
-                {isMenuOpen && !isRecording && (
-                    <div className="absolute top-full right-0 mt-2 w-48 bg-[var(--bg-panel)] border border-[var(--border-color)] rounded-md shadow-lg z-10 animate-fade-in p-1">
-                        <button onClick={() => handleModeSelect('overdub')} className="w-full text-left px-3 py-2 text-xs hover:bg-[var(--border-color-light)] rounded">Overdub (Additive)</button>
-                        <button onClick={() => handleModeSelect('overwrite')} className="w-full text-left px-3 py-2 text-xs hover:bg-[var(--border-color-light)] rounded">Overwrite (Replace)</button>
-                        <div className="h-px bg-[var(--border-color)] my-1" />
-                        <button onClick={handleClear} className="w-full text-left px-3 py-2 text-xs hover:bg-[var(--border-color-light)] rounded text-red-400">Clear All Automation</button>
-                    </div>
-                )}
             </div>
         </div>
     );
@@ -393,7 +362,7 @@ const ArcaneEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks
             <Knob label="FINE 2" value={getParamValue(track, pLocks, 'osc2_fine')} min={-100} max={100} step={1} onChange={createHandler('osc2_fine')} unit="c" isPLocked={isParamLocked(track, pLocks, 'osc2_fine')} mapInfo={{ path: `tracks.${track.id}.params.osc2_fine`, label: `${track.name} Osc2 Fine` }} />
         </Section>
         <Section title="MODULATION & FOLDING" className="grid-cols-2 md:grid-cols-4">
-             <Selector label="MODE" value={params.mode} options={[{value: 'pm', label: 'PHASE MOD'}, {value: 'add', label: 'ADDITIVE'}, {value: 'ring', label: 'RING MOD'}, {value: 'hard_sync', label: 'HARD SYNC'}]} onChange={createHandler('mode')} isPLocked={isParamLocked(track, pLocks, 'mode')} />
+             <Selector label="MODE" value={params.mode} options={[{value: 'pm', label: 'PM'}, {value: 'add', label: 'ADD'}, {value: 'ring', label: 'RING'}, {value: 'hard_sync', label: 'SYNC'}]} onChange={createHandler('mode')} isPLocked={isParamLocked(track, pLocks, 'mode')} />
             <Knob label="MOD AMT" value={getParamValue(track, pLocks, 'mod_amount')} min={0} max={100} onChange={createHandler('mod_amount')} isPLocked={isParamLocked(track, pLocks, 'mod_amount')} mapInfo={{ path: `tracks.${track.id}.params.mod_amount`, label: `${track.name} Mod Amount` }} />
             <Knob label="FOLD" value={getParamValue(track, pLocks, 'fold')} min={0} max={100} onChange={createHandler('fold')} isPLocked={isParamLocked(track, pLocks, 'fold')} mapInfo={{ path: `tracks.${track.id}.params.fold`, label: `${track.name} Fold` }} />
             <Knob label="SPREAD" value={getParamValue(track, pLocks, 'spread')} min={0} max={100} onChange={createHandler('spread')} unit="c" isPLocked={isParamLocked(track, pLocks, 'spread')} mapInfo={{ path: `tracks.${track.id}.params.spread`, label: `${track.name} Spread` }} />
@@ -421,7 +390,7 @@ const RuinEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, 
             <Knob label="DECAY" value={getParamValue(track, pLocks, 'decay')} min={0.01} max={4} step={0.01} onChange={createHandler('decay')} isPLocked={isParamLocked(track, pLocks, 'decay')} mapInfo={{ path: `tracks.${track.id}.params.decay`, label: `${track.name} Decay` }} />
         </Section>
         <Section title="DESTRUCTION" className="grid-cols-2 md:grid-cols-4">
-             <Selector label="ALGORITHM" value={params.algorithm} options={[{value: 'feedback_pm', label: 'FEEDBACK PM'}, {value: 'distort_fold', label: 'DISTORT>FOLD'}, {value: 'overload', label: 'OVERLOAD'}]} onChange={createHandler('algorithm')} isPLocked={isParamLocked(track, pLocks, 'algorithm')} />
+             <Selector label="ALGORITHM" value={params.algorithm} options={[{value: 'feedback_pm', label: 'FB PM'}, {value: 'distort_fold', label: 'D>FOLD'}, {value: 'overload', label: 'OVR'}]} onChange={createHandler('algorithm')} isPLocked={isParamLocked(track, pLocks, 'algorithm')} />
             <Knob label="TIMBRE" value={getParamValue(track, pLocks, 'timbre')} min={0} max={100} onChange={createHandler('timbre')} isPLocked={isParamLocked(track, pLocks, 'timbre')} mapInfo={{ path: `tracks.${track.id}.params.timbre`, label: `${track.name} Timbre` }} />
             <Knob label="DRIVE" value={getParamValue(track, pLocks, 'drive')} min={0} max={100} onChange={createHandler('drive')} isPLocked={isParamLocked(track, pLocks, 'drive')} mapInfo={{ path: `tracks.${track.id}.params.drive`, label: `${track.name} Drive` }} />
             <Knob label="FOLD" value={getParamValue(track, pLocks, 'fold')} min={0} max={100} onChange={createHandler('fold')} isPLocked={isParamLocked(track, pLocks, 'fold')} mapInfo={{ path: `tracks.${track.id}.params.fold`, label: `${track.name} Fold` }} />
@@ -460,7 +429,7 @@ const ArtificeEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLoc
             extraControls={<Knob label="ENV AMT" value={getParamValue(track, pLocks, 'filterEnvAmount')} min={-10000} max={10000} onChange={createHandler('filterEnvAmount')} isPLocked={isParamLocked(track, pLocks, 'filterEnvAmount')} mapInfo={{ path: `tracks.${track.id}.params.filterEnvAmount`, label: `${track.name} Filter Env Amt` }} />}
         />
         <Section title="DUAL FILTER" className="grid-cols-2 md:grid-cols-4">
-            <Selector label="MODE" value={params.filter_mode} options={[{value: 'lp_hp_p', label: 'LP/HP PARALLEL'}, {value: 'lp_hp_s', label: 'LP > HP SERIES'}, {value: 'bp_bp_p', label: 'DUAL BP PARALLEL'}]} onChange={createHandler('filter_mode')} isPLocked={isParamLocked(track, pLocks, 'filter_mode')} />
+            <Selector label="MODE" value={params.filter_mode} options={[{value: 'lp_hp_p', label: 'LP/HP P'}, {value: 'lp_hp_s', label: 'LP>HP S'}, {value: 'bp_bp_p', label: 'DUAL BP'}]} onChange={createHandler('filter_mode')} isPLocked={isParamLocked(track, pLocks, 'filter_mode')} />
             <Knob label="CUTOFF" value={getParamValue(track, pLocks, 'filter_cutoff')} min={20} max={20000} onChange={createHandler('filter_cutoff')} isPLocked={isParamLocked(track, pLocks, 'filter_cutoff')} mapInfo={{ path: `tracks.${track.id}.params.filter_cutoff`, label: `${track.name} Filter Cutoff` }} />
             <Knob label="RESO" value={getParamValue(track, pLocks, 'filter_res')} min={0.1} max={30} step={0.1} onChange={createHandler('filter_res')} isPLocked={isParamLocked(track, pLocks, 'filter_res')} mapInfo={{ path: `tracks.${track.id}.params.filter_res`, label: `${track.name} Filter Reso` }} />
             <Knob label="SPREAD" value={getParamValue(track, pLocks, 'filter_spread')} min={-48} max={48} step={1} onChange={createHandler('filter_spread')} unit="st" isPLocked={isParamLocked(track, pLocks, 'filter_spread')} mapInfo={{ path: `tracks.${track.id}.params.filter_spread`, label: `${track.name} Filter Spread` }} />
@@ -511,7 +480,7 @@ const ResonEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks,
             <Knob label="MATERIAL" value={getParamValue(track, pLocks, 'material')} min={0} max={100} onChange={createHandler('material')} isPLocked={isParamLocked(track, pLocks, 'material')} mapInfo={{ path: `tracks.${track.id}.params.material`, label: `${track.name} Material` }} />
         </Section>
         <Section title="EXCITER" className="grid-cols-1">
-            <Selector label="TYPE" value={params.exciter_type} options={[{value: 'noise', label: 'FILTERED NOISE'}, {value: 'impulse', label: 'SHORT IMPULSE'}]} onChange={createHandler('exciter_type')} isPLocked={isParamLocked(track, pLocks, 'exciter_type')} />
+            <Selector label="TYPE" value={params.exciter_type} options={[{value: 'noise', label: 'F. NOISE'}, {value: 'impulse', label: 'IMPULSE'}]} onChange={createHandler('exciter_type')} isPLocked={isParamLocked(track, pLocks, 'exciter_type')} />
         </Section>
         <EnvelopeSection basePath="ampEnv" track={track} pLocks={pLocks} onParamChange={onParamChange} title="AMP ENVELOPE" />
         <FilterSection basePath="filter" track={track} pLocks={pLocks} onParamChange={onParamChange} />

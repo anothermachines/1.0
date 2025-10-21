@@ -29,21 +29,34 @@ const TRIG_CONDITIONS: { label: string; value: TrigCondition }[] = [
 ];
 
 interface StepButtonProps {
-    step: StepState;
+    trackId: number;
     stepIndex: number;
     patternLength: number;
-    isSelectedForPLock: boolean;
     onClick: (e: React.MouseEvent<HTMLButtonElement> | React.TouchEvent<HTMLButtonElement>) => void;
     mapInfo?: { path: string; label: string };
     isDarkGroup: boolean;
     defaultNote: string;
-    isCurrent: boolean;
     disabled?: boolean;
 }
 
 const StepButton: React.FC<StepButtonProps> = React.memo(({
-    step, stepIndex, patternLength, isSelectedForPLock, onClick, mapInfo, isDarkGroup, defaultNote, isCurrent, disabled = false
+    trackId, stepIndex, patternLength, onClick, mapInfo, isDarkGroup, defaultNote, disabled = false
 }) => {
+    // This granular selector makes StepButton self-sufficient for its dynamic data.
+    // It only re-renders when its own step data changes, or when it becomes the current/p-locked step.
+    const { step, isSelectedForPLock, isCurrent } = useStore(state => {
+        const track = state.preset.tracks.find(t => t.id === trackId);
+        // Fallback for rare race conditions during state transitions
+        if (!track || !track.patterns[track.activePatternIndex] || !track.patterns[track.activePatternIndex][stepIndex]) {
+            return { step: { active: false, pLocks: null, notes: [], velocity: 1.0, duration: 1, condition: { type: 'always' } }, isSelectedForPLock: false, isCurrent: false };
+        }
+        return {
+            step: track.patterns[track.activePatternIndex][stepIndex],
+            isSelectedForPLock: state.selectedPLockStep?.trackId === trackId && state.selectedPLockStep?.stepIndex === stepIndex,
+            isCurrent: state.currentStep === stepIndex,
+        };
+    }, shallow);
+    
     const { isLearning, learningTarget, mapTarget } = useMidiMapping();
     const isSelectedTarget = isLearning && learningTarget?.path === mapInfo?.path;
 
@@ -67,7 +80,7 @@ const StepButton: React.FC<StepButtonProps> = React.memo(({
     const baseBg = isDarkGroup ? 'var(--sequencer-step-dark)' : 'var(--sequencer-step-light)';
     const baseShadow = 'inset 0 1px 1px rgba(0,0,0,0.5), inset 0 -1px 1px rgba(255,255,255,0.1)';
     
-    const velocityOpacity = isActive ? 0.4 + (step.velocity * 0.6) : 0;
+    const velocityOpacity = isActive && step.velocity ? 0.4 + (step.velocity * 0.6) : 0;
     
     const outerGlow = isActive ? `0 0 8px 1px rgba(var(--accent-rgb), 0.5)` : 'none';
 
@@ -123,31 +136,49 @@ const StepButton: React.FC<StepButtonProps> = React.memo(({
     );
 });
 
-const TrackRow = React.memo(({ track, currentPage, isSelected, isAudible, isDisabled }: { track: Track; currentPage: number; isSelected: boolean; isAudible: boolean; isDisabled: boolean; }) => {
-    const { handleStepClick, selectedPLockStep, currentStep } = useStore(state => ({
-        handleStepClick: state.handleStepClick,
-        selectedPLockStep: state.selectedPLockStep,
-        currentStep: state.currentStep,
-    }), shallow);
-    const stepsForTrack = track.patterns[track.activePatternIndex] || [];
+const TrackRow = React.memo(({ trackId, currentPage }: { trackId: number; currentPage: number; }) => {
+    // This selector is now highly performant. It only selects primitives and will only re-render
+    // when this specific track's selection, mute, or solo state changes. It no longer depends
+    // on the volatile `activePattern` array, fixing the highlighting bug.
+    const {
+        name, patternLength, defaultNote,
+        isSelected, isMuted, isSoloed, soloedTrackId, isViewerMode, isSpectator
+    } = useStore(state => {
+        const track = state.preset.tracks.find(t => t.id === trackId);
+        if (!track) return {} as any;
+        return {
+            name: track.name,
+            patternLength: track.patternLength,
+            defaultNote: track.defaultNote,
+            isSelected: state.selectedTrackId === trackId,
+            isMuted: state.mutedTracks.includes(trackId),
+            isSoloed: state.soloedTrackId === trackId,
+            soloedTrackId: state.soloedTrackId,
+            isViewerMode: state.isViewerMode,
+            isSpectator: state.isSpectator,
+        };
+    }, shallow);
 
-    const handleStepClickCallback = useCallback((trackId: number, stepIndex: number) => {
-        handleStepClick(trackId, stepIndex);
-    }, [handleStepClick]);
+    const handleStepClick = useStore(state => state.handleStepClick);
+    
+    const trackForHeader = useMemo(() => ({ id: trackId, name, type: 'kick' } as Track), [trackId, name]);
+
+    if (!name) return null;
+
+    const isAudible = soloedTrackId === null ? !isMuted : isSoloed;
+    const isDisabled = isSpectator || (isViewerMode && trackId >= 3);
 
     return (
         <div className={`flex items-stretch space-x-2 border-b border-neutral-700/50 last:border-b-0 ${isDisabled ? 'opacity-50' : ''}`}>
             <div className={`w-32 flex-shrink-0 flex items-center justify-between transition-all duration-150 ${isDisabled ? 'pointer-events-none' : ''}`}>
-                <TrackHeader track={track} isSelected={isSelected} isAudible={isAudible} className="!h-full !border-b-0" />
+                <TrackHeader track={trackForHeader} isSelected={isSelected} isAudible={isAudible} className="!h-full !border-b-0" />
             </div>
             <div className={`flex-grow grid grid-cols-16 gap-1 py-0.5 ${isDisabled ? 'pointer-events-none' : ''}`}>
-                {stepsForTrack.slice(currentPage * 16, (currentPage + 1) * 16).map((step, i) => {
+                {Array.from({ length: 16 }).map((_, i) => {
                     const stepIndexOnPage = i;
                     const groupIndex = Math.floor(stepIndexOnPage / 4);
                     const isDarkGroup = groupIndex % 2 !== 0;
                     const stepIndex = i + (currentPage * 16);
-                    const isSelectedForPLock = selectedPLockStep?.trackId === track.id && selectedPLockStep?.stepIndex === stepIndex;
-                    const isCurrent = currentStep === stepIndex;
 
                     let borderClass = 'border-l ';
                     if (stepIndex % 16 === 0) {
@@ -161,18 +192,16 @@ const TrackRow = React.memo(({ track, currentPage, isSelected, isAudible, isDisa
                     return (
                         <div
                             className={`aspect-[3/2] ${borderClass}`}
-                            key={`${track.id}-${stepIndex}`}
+                            key={`${trackId}-${stepIndex}`}
                         >
                             <StepButton
-                                step={step}
+                                trackId={trackId}
                                 stepIndex={stepIndex}
-                                patternLength={track.patternLength}
-                                isSelectedForPLock={isSelectedForPLock}
-                                onClick={() => handleStepClickCallback(track.id, stepIndex)}
-                                mapInfo={{ path: `sequencer.step.${track.id}.${stepIndex}`, label: `T${track.id + 1} Step ${stepIndex + 1}` }}
+                                patternLength={patternLength}
+                                onClick={() => handleStepClick(trackId, stepIndex)}
+                                mapInfo={{ path: `sequencer.step.${trackId}.${stepIndex}`, label: `T${trackId + 1} Step ${stepIndex + 1}` }}
                                 isDarkGroup={isDarkGroup}
-                                defaultNote={track.defaultNote}
-                                isCurrent={isCurrent}
+                                defaultNote={defaultNote}
                                 disabled={isDisabled}
                             />
                         </div>
@@ -185,59 +214,64 @@ const TrackRow = React.memo(({ track, currentPage, isSelected, isAudible, isDisa
 
 
 const SequencerComponent: React.FC = () => {
-  const tracks = useStore(state => state.preset?.tracks || []);
-  const { selectedTrackId, mutedTracks, soloedTrackId, currentStep } = useStore(state => ({
-    selectedTrackId: state.selectedTrackId,
-    mutedTracks: state.mutedTracks,
-    soloedTrackId: state.soloedTrackId,
-    currentStep: state.currentStep,
-  }), shallow);
-  const { isPLockModeActive, selectedPLockStep, centerView, euclideanMode, copiedPattern, isViewerMode, isSpectator, sequencerPage } = useStore(state => ({
-    isPLockModeActive: state.isPLockModeActive,
-    selectedPLockStep: state.selectedPLockStep,
-    centerView: state.centerView,
-    euclideanMode: state.euclideanMode,
-    copiedPattern: state.copiedPattern,
-    isViewerMode: state.isViewerMode,
-    isSpectator: state.isSpectator,
-    sequencerPage: state.sequencerPage,
-  }), shallow);
-  const { 
-    togglePLockMode, selectPattern, setPatternLength, setStepProperty, 
-    randomizeTrackPattern, startEuclideanMode, clearTrackPattern, clearAutomation, 
-    toggleCenterView, updateEuclidean, applyEuclidean, cancelEuclidean, setParam, 
-    setTrackPan, setFxSend, copyPattern, pastePattern, triggerViewerModeInteraction, 
-    setSequencerPage, currentPlayheadTime
-  } = useStore(state => ({
-    togglePLockMode: state.togglePLockMode,
-    selectPattern: state.selectPattern,
-    setPatternLength: state.setPatternLength,
-    setStepProperty: state.setStepProperty,
-    randomizeTrackPattern: state.randomizeTrackPattern,
-    startEuclideanMode: state.startEuclideanMode,
-    clearTrackPattern: state.clearTrackPattern,
-    clearAutomation: state.clearAutomation,
-    toggleCenterView: state.toggleCenterView,
-    updateEuclidean: state.updateEuclidean,
-    applyEuclidean: state.applyEuclidean,
-    cancelEuclidean: state.cancelEuclidean,
-    setParam: state.setParam,
-    setTrackPan: state.setTrackPan,
-    setFxSend: state.setFxSend,
-    copyPattern: state.copyPattern,
-    pastePattern: state.pastePattern,
-    triggerViewerModeInteraction: state.triggerViewerModeInteraction,
-    setSequencerPage: state.setSequencerPage,
-    currentPlayheadTime: state.currentPlayheadTime,
-  }), shallow);
+    // This selector is now stable. It only re-renders if track IDs change.
+    const trackIds = useStore(state => state.preset.tracks.map(t => t.id), shallow);
+
+    // This hook gets all other necessary state.
+    const { 
+        selectedTrackId, currentStep, isPLockModeActive, selectedPLockStep, centerView, 
+        euclideanMode, copiedPattern, sequencerPage
+    } = useStore(state => ({
+        selectedTrackId: state.selectedTrackId,
+        currentStep: state.currentStep,
+        isPLockModeActive: state.isPLockModeActive,
+        selectedPLockStep: state.selectedPLockStep,
+        centerView: state.centerView,
+        euclideanMode: state.euclideanMode,
+        copiedPattern: state.copiedPattern,
+        sequencerPage: state.sequencerPage,
+    }), shallow);
+    
+    // This hook only gets actions, which are stable.
+    const { 
+        togglePLockMode, selectPattern, setPatternLength, setStepProperty, 
+        randomizeTrackPattern, startEuclideanMode, clearTrackPattern, clearAutomation, 
+        toggleCenterView, updateEuclidean, applyEuclidean, cancelEuclidean, setParam, 
+        setTrackPan, setFxSend, copyPattern, pastePattern, triggerViewerModeInteraction, 
+        setSequencerPage, currentPlayheadTime
+    } = useStore(state => ({
+        togglePLockMode: state.togglePLockMode,
+        selectPattern: state.selectPattern,
+        setPatternLength: state.setPatternLength,
+        setStepProperty: state.setStepProperty,
+        randomizeTrackPattern: state.randomizeTrackPattern,
+        startEuclideanMode: state.startEuclideanMode,
+        clearTrackPattern: state.clearTrackPattern,
+        clearAutomation: state.clearAutomation,
+        toggleCenterView: state.toggleCenterView,
+        updateEuclidean: state.updateEuclidean,
+        applyEuclidean: state.applyEuclidean,
+        cancelEuclidean: state.cancelEuclidean,
+        setParam: state.setParam,
+        setTrackPan: state.setTrackPan,
+        setFxSend: state.setFxSend,
+        copyPattern: state.copyPattern,
+        pastePattern: state.pastePattern,
+        triggerViewerModeInteraction: state.triggerViewerModeInteraction,
+        setSequencerPage: state.setSequencerPage,
+        currentPlayheadTime: state.currentPlayheadTime,
+    }), shallow);
 
   const [isPatternSelectorOpen, setIsPatternSelectorOpen] = useState(false);
   const patternSelectorRef = useRef<HTMLDivElement>(null);
   
-  const selectedTrack = tracks.find(t => t.id === selectedTrackId);
-  
-  const pLockTrack = selectedPLockStep ? tracks.find(t => t.id === selectedPLockStep.trackId) : null;
-  const pLockStepState = pLockTrack ? pLockTrack.patterns[pLockTrack.activePatternIndex][selectedPLockStep.stepIndex] : null;
+  // These hooks now subscribe to their own data, preventing the whole sequencer from re-rendering.
+  const selectedTrack = useStore(state => state.preset.tracks.find(t => t.id === selectedTrackId));
+  const pLockTrack = useStore(state => selectedPLockStep ? state.preset.tracks.find(t => t.id === selectedPLockStep.trackId) : null);
+  const pLockStepState = useStore(state => {
+      if (!pLockTrack || !selectedPLockStep) return null;
+      return pLockTrack.patterns[pLockTrack.activePatternIndex][selectedPLockStep.stepIndex];
+  });
   
   const globalCurrentPage = Math.floor(currentStep / 16);
 
@@ -264,8 +298,6 @@ const SequencerComponent: React.FC = () => {
 
   if (!selectedTrack) return null;
   
-  const activePattern = selectedTrack.patterns[selectedTrack.activePatternIndex];
-
   const handleClearNoteLock = useCallback(() => {
       if (selectedPLockStep) {
           setStepProperty(selectedPLockStep.trackId, selectedPLockStep.stepIndex, 'notes', []);
@@ -321,11 +353,11 @@ const SequencerComponent: React.FC = () => {
                         <path d="M17 18v-9"/>
                     </svg>
                 </button>
-                <button onClick={() => randomizeTrackPattern(selectedTrackId)} title="Randomize Pattern" className="px-2 py-1.5 rounded-sm bg-[var(--bg-control)] hover:bg-[var(--border-color)] border border-[var(--border-color)] transition-colors text-[var(--text-light)]">
+                <button onClick={() => randomizeTrackPattern(selectedTrackId)} title="Randomize Pattern" className="flex items-center justify-center px-2 py-1.5 rounded-sm bg-[var(--bg-control)] hover:bg-[var(--border-color)] border border-[var(--border-color)] transition-colors text-[var(--text-light)]">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
                         <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"></circle>
-                        <circle cx="15.5" cy="8.5" r="1.5" fill="currentColor"></circle>
+                        <path d="M15.5 8.5 A 1.5 1.5 0 0 1 15.5 8.5 Z" fill="currentColor"></path>
                         <circle cx="15.5" cy="15.5" r="1.5" fill="currentColor"></circle>
                         <circle cx="8.5" cy="15.5" r="1.5" fill="currentColor"></circle>
                     </svg>
@@ -333,7 +365,7 @@ const SequencerComponent: React.FC = () => {
                  <button 
                     onClick={() => startEuclideanMode(selectedTrackId)} 
                     title="Generate Euclidean Rhythm" 
-                    className={`px-2 py-1.5 rounded-sm border transition-colors text-[var(--text-light)] ${
+                    className={`flex items-center justify-center px-2 py-1.5 rounded-sm border transition-colors text-[var(--text-light)] ${
                         euclideanMode ? 'bg-purple-500 border-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.7)]' : 'bg-[var(--bg-control)] hover:bg-[var(--border-color)] border-[var(--border-color)]'
                     }`}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -426,24 +458,13 @@ const SequencerComponent: React.FC = () => {
         </div>
         
         <div className="flex-grow min-h-0 flex flex-col overflow-auto no-scrollbar bg-[var(--bg-chassis)] p-2 rounded-md border border-[var(--border-color)]" data-tour-id="sequencer-grid">
-            {tracks.map(track => {
-                const isSelected = track.id === selectedTrackId;
-                const isMuted = mutedTracks.includes(track.id);
-                const isSoloed = soloedTrackId === track.id;
-                const isAudible = soloedTrackId === null ? !isMuted : isSoloed;
-                const isDisabled = isSpectator || (isViewerMode && track.id >= 3);
-                
-                return (
-                    <TrackRow
-                        key={track.id}
-                        track={track}
-                        currentPage={sequencerPage}
-                        isSelected={isSelected}
-                        isAudible={isAudible}
-                        isDisabled={isDisabled}
-                    />
-                );
-            })}
+            {trackIds.map(trackId => (
+                <TrackRow
+                    key={trackId}
+                    trackId={trackId}
+                    currentPage={sequencerPage}
+                />
+            ))}
         </div>
 
 

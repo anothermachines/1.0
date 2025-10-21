@@ -45,13 +45,10 @@ This project is a self-contained web application with no build step required.
     ```bash
     git clone https://github.com/your-username/fm8r-groovebox.git
     ```
-2.  **Serve the files:**
-    Because of browser security policies (CORS), you need to serve the files from a local web server. You cannot just open the `index.html` file directly from your file system.
-    A simple way to do this is using the [Live Server](https://marketplace.visualstudio.com/items?itemName=ritwickdey.LiveServer) extension for VS Code.
-    *   Install the extension.
-    *   Right-click on `index.html` in your editor and select "Open with Live Server".
+2.  **Open the file:**
+    Navigate to the project folder and open the `index.html` file in your favorite web browser.
 3.  **Start Jamming:**
-    The application will open in your default browser, ready to go.
+    The application will open, ready to go.
 
 ## 🛠️ Tech Stack
 

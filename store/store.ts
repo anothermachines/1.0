@@ -10,7 +10,7 @@ import { AudioEngine } from '../audioEngine';
 import { DEMO_DEFAULT_PROJECT, LICENSED_DEFAULT_PROJECT } from '../factoryProjects';
 import { INITIAL_PRESET_LIBRARY, newProjectPreset } from '../presetLibrary';
 import { INITIAL_INSTRUMENT_PRESET_LIBRARY } from '../instrumentPresetLibrary';
-import { deepClone, deepMerge, createTechnoPattern, randomizeKickParams, randomizeHatParams, randomizeArcaneParams, randomizeRuinParams, randomizeArtificeParams, randomizeShiftParams, randomizeResonParams, randomizeAlloyParams, audioBufferToWav, downloadBlob, generateEuclideanPattern, generateWaveformData, setDeep, generateWaveformForPattern, midiToNoteName, getInitialParamsForType } from '../utils';
+import { getAutomationValue, deepClone, deepMerge, createTechnoPattern, randomizeKickParams, randomizeHatParams, randomizeArcaneParams, randomizeRuinParams, randomizeArtificeParams, randomizeShiftParams, randomizeResonParams, randomizeAlloyParams, audioBufferToWav, downloadBlob, generateEuclideanPattern, generateWaveformData, setDeep, generateWaveformForPattern, midiToNoteName, getInitialParamsForType } from '../utils';
 import { createEmptyPatterns, INITIAL_KICK_PARAMS, INITIAL_HAT_PARAMS, INITIAL_ARCANE_PARAMS, INITIAL_RUIN_PARAMS, INITIAL_ARTIFICE_PARAMS, INITIAL_SHIFT_PARAMS, INITIAL_RESON_PARAMS, INITIAL_ALLOY_PARAMS } from '../constants';
 import { useVUMeterStore } from './vuMeterStore';
 import { shallow } from 'zustand/shallow';
@@ -197,10 +197,43 @@ function scheduler() {
 
 function mainLoop() {
     if (!useStore.getState().isPlaying || !audioEngine) return;
-    
+
     const audioCtxTime = audioEngine.getContext().currentTime;
     let currentPlayheadTime = playStartOffset + (audioCtxTime - playStartTime);
     useStore.setState({ currentPlayheadTime });
+
+    // --- NEW: Automation Playback Logic ---
+    const { preset, mainView } = useStore.getState();
+    const secondsPerBeat = 60 / preset.bpm;
+    let automationTimeInBeats = currentPlayheadTime / secondsPerBeat;
+
+    if (mainView === 'pattern') {
+        const patternDurationInBeats = 64 / 4; // 16 beats for 64 steps
+        automationTimeInBeats = automationTimeInBeats % patternDurationInBeats;
+    }
+    
+    preset.tracks.forEach(track => {
+        if (track.automation && track.type !== 'midi') { // No audio automation for MIDI tracks
+            // Volume
+            const volValue = getAutomationValue(track.automation, 'volume', automationTimeInBeats);
+            if (volValue !== undefined) {
+                audioEngine.updateTrackVolume(track.id, volValue);
+            }
+            // Pan
+            const panValue = getAutomationValue(track.automation, 'pan', automationTimeInBeats);
+            if (panValue !== undefined) {
+                audioEngine.updateTrackPan(track.id, panValue);
+            }
+            // FX Sends
+            for (const fx of ['reverb', 'delay', 'drive', 'sidechain'] as const) {
+                const sendValue = getAutomationValue(track.automation, `fxSends.${fx}`, automationTimeInBeats);
+                if (sendValue !== undefined) {
+                    audioEngine.updateTrackFxSend(track.id, fx, sendValue);
+                }
+            }
+        }
+    });
+    // --- END of Automation Playback Logic ---
 
     scheduler();
 }
@@ -235,7 +268,7 @@ interface AppState {
     soloedTrackId: number | null;
     isPLockModeActive: boolean;
     selectedPLockStep: { trackId: number; stepIndex: number; } | null;
-    automationRecording: { trackId: number; mode: 'overwrite' | 'overdub' } | null;
+    automationRecording: { trackId: number; } | null;
     overwriteTouchedParams: Set<string>;
     centerView: CenterView;
     mainView: MainView;
@@ -253,6 +286,7 @@ interface AppState {
     showWelcomeScreen: boolean;
     isExporting: boolean;
     exportProgress: string;
+    exportProgressValue: number;
     presets: Preset[];
     instrumentPresets: InstrumentPreset[];
     installedPacks: string[];
@@ -318,7 +352,7 @@ interface AppActions {
     auditionNote: (note: string, velocity?: number) => void;
     setPatternLength: (trackId: number, length: number) => void;
     selectPattern: (trackId: number, patternIndex: number, currentPlayheadTime: number) => void;
-    startAutomationRecording: (trackId: number, mode: 'overwrite' | 'overdub') => void;
+    startAutomationRecording: (trackId: number) => void;
     stopAutomationRecording: () => void;
     clearAutomation: (trackId: number) => void;
     randomizeTrackPattern: (trackId: number) => void;
@@ -393,7 +427,6 @@ interface AppActions {
     toggleShareJamModal: (open?: boolean) => void;
     generateShareableLink: () => Promise<string>;
     toggleFullscreenPrompt: (show?: boolean) => void;
-    _recordAutomationPoint: (state: any, trackId: number, path: string, value: any) => void;
     addMidiCcLock: (cc?: number, value?: number) => void;
     updateMidiCcLock: (id: string, cc?: number, value?: number) => void;
     removeMidiCcLock: (id: string) => void;
@@ -404,7 +437,6 @@ interface AppActions {
     setPlayheadPosition: (time: number) => void;
     handleMidiSyncMessage: (status: number) => void;
 }
-
 
 // --- INITIAL STATE ---
 
@@ -433,6 +465,7 @@ const initialAppState: AppState = {
     showWelcomeScreen: true,
     isExporting: false,
     exportProgress: '',
+    exportProgressValue: 0,
     presets: [],
     instrumentPresets: [],
     installedPacks: [],
@@ -472,308 +505,144 @@ const initialAppState: AppState = {
     midiClockPulseCount: 0,
 };
 
-async function renderPatternAudio(
-    preset: Preset, 
-    sampleRate: number, 
-    mutedTracks: number[], 
-    soloedTrackId: number | null, 
-    options: { type: 'master' | 'stems-wet' | 'stems-dry', includeMasterFx: boolean },
-    onProgress: (message: string) => void
-): Promise<{ blob: Blob, name: string }> {
-    const RENDER_STEPS = 64;
-    const secondsPerStep = (60.0 / preset.bpm) / 4.0;
-    const totalDuration = RENDER_STEPS * secondsPerStep;
-
-    if (options.type === 'master') {
-        onProgress('Rendering master track...');
-        const offlineCtx = new OfflineAudioContext(2, Math.ceil(totalDuration * sampleRate), sampleRate);
-        const engine = new AudioEngine(offlineCtx);
-        await engine.init();
-
-        engine.createTrackChannels(preset.tracks);
-        engine.updateBpm(preset.bpm);
-        engine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
-        engine.updateDelay(preset.globalFxParams.delay, preset.bpm);
-        engine.updateDrive(preset.globalFxParams.drive);
-        engine.updateCharacter(preset.globalFxParams.character);
-        engine.updateMasterFilter(preset.globalFxParams.masterFilter);
-        engine.updateCompressor(preset.globalFxParams.compressor);
-        engine.updateMasterVolume(preset.globalFxParams.masterVolume);
-
-        for (let i = 0; i < RENDER_STEPS; i++) {
-            const time = i * secondsPerStep;
-            preset.tracks.forEach(track => {
-                const isAudible = soloedTrackId === null ? !mutedTracks.includes(track.id) : soloedTrackId === track.id;
-                if (isAudible) {
-                    const patternStepIndex = i % track.patternLength;
-                    const stepState = track.patterns[track.activePatternIndex][patternStepIndex];
-                    engine.playStep(track, stepState, time, time, 0);
-                }
-            });
-        }
-        const renderedBuffer = await offlineCtx.startRendering();
-        const wavData = audioBufferToWav(renderedBuffer);
-        return { blob: new Blob([wavData], { type: 'audio/wav' }), name: `${preset.name}_master.wav` };
-
-    } else { // Stems
-        await loadJSZip();
-        const zip = new JSZip();
-        const audibleTracks = preset.tracks.filter(track => soloedTrackId === null ? !mutedTracks.includes(track.id) : soloedTrackId === track.id);
-
-        for (let i = 0; i < audibleTracks.length; i++) {
-            const track = audibleTracks[i];
-            onProgress(`Rendering stem (${i + 1}/${audibleTracks.length}): ${track.name}`);
-            const offlineCtx = new OfflineAudioContext(2, Math.ceil(totalDuration * sampleRate), sampleRate);
-            const engine = new AudioEngine(offlineCtx);
-            await engine.init();
-
-            engine.createTrackChannels(preset.tracks);
-            engine.updateBpm(preset.bpm);
-
-            if (options.includeMasterFx) {
-                engine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
-                engine.updateDelay(preset.globalFxParams.delay, preset.bpm);
-                engine.updateDrive(preset.globalFxParams.drive);
-                engine.updateCharacter(preset.globalFxParams.character);
-            } else {
-                engine.updateReverb({ ...preset.globalFxParams.reverb, mix: 0 }, preset.bpm);
-                engine.updateDelay({ ...preset.globalFxParams.delay, mix: 0 }, preset.bpm);
-                engine.updateDrive({ ...preset.globalFxParams.drive, mix: 0 });
-                engine.updateCharacter({ ...preset.globalFxParams.character, mix: 0 });
-            }
-
-            engine.updateMasterFilter({ type: 'lowpass', cutoff: 20000, resonance: 1 });
-            engine.updateCompressor({ ...preset.globalFxParams.compressor, enabled: false, threshold: 0, makeup: 0 });
-            
-            // Apply significant gain before the final limiter stage in the engine
-            engine.updateMasterVolume(2.5);
-
-            preset.tracks.forEach(t => {
-                if (t.id !== track.id) {
-                    engine.updateTrackVolume(t.id, 0);
-                    if (options.includeMasterFx) {
-                        engine.updateTrackFxSend(t.id, 'reverb', 0);
-                        engine.updateTrackFxSend(t.id, 'delay', 0);
-                        engine.updateTrackFxSend(t.id, 'drive', 0);
-                    }
-                } else {
-                    engine.updateTrackVolume(t.id, t.volume);
-                }
-            });
-
-            for (let step = 0; step < RENDER_STEPS; step++) {
-                const time = step * secondsPerStep;
-                const patternStepIndex = step % track.patternLength;
-                const stepState = track.patterns[track.activePatternIndex][patternStepIndex];
-                engine.playStep(track, stepState, time, time, 0);
-            }
-
-            let renderedBuffer = await offlineCtx.startRendering();
-            
-            // --- 1. TRIM LEADING SILENCE ---
-            const trimThreshold = 0.0001;
-            let firstSample = -1;
-
-            for (let channel = 0; channel < renderedBuffer.numberOfChannels; channel++) {
-                const data = renderedBuffer.getChannelData(channel);
-                for (let j = 0; j < data.length; j++) {
-                    if (Math.abs(data[j]) > trimThreshold) {
-                        if (firstSample === -1 || j < firstSample) {
-                            firstSample = j;
-                        }
-                        break; // Found first sound in this channel, move to next channel
-                    }
-                }
-            }
-
-            if (firstSample > 0 && firstSample < renderedBuffer.length) {
-                const trimmedLength = renderedBuffer.length - firstSample;
-                const tempCtx = new OfflineAudioContext(renderedBuffer.numberOfChannels, trimmedLength, renderedBuffer.sampleRate);
-                const trimmedBuffer = tempCtx.createBuffer(renderedBuffer.numberOfChannels, trimmedLength, renderedBuffer.sampleRate);
-                for (let channel = 0; channel < renderedBuffer.numberOfChannels; channel++) {
-                    const channelData = renderedBuffer.getChannelData(channel).slice(firstSample);
-                    trimmedBuffer.copyToChannel(channelData, channel);
-                }
-                renderedBuffer = trimmedBuffer;
-            }
-
-            // --- 2. NORMALIZE AUDIO ---
-            let peak = 0;
-            for (let channel = 0; channel < renderedBuffer.numberOfChannels; channel++) {
-                const data = renderedBuffer.getChannelData(channel);
-                for (let j = 0; j < data.length; j++) {
-                    const absValue = Math.abs(data[j]);
-                    if (absValue > peak) {
-                        peak = absValue;
-                    }
-                }
-            }
-            
-            if (peak > 0) {
-                const gain = 0.98 / peak; // Target -0.1dBFS to be safe
-                const normalizeCtx = new OfflineAudioContext(renderedBuffer.numberOfChannels, renderedBuffer.length, renderedBuffer.sampleRate);
-                const source = normalizeCtx.createBufferSource();
-                source.buffer = renderedBuffer;
-                const gainNode = normalizeCtx.createGain();
-                gainNode.gain.value = gain;
-                source.connect(gainNode).connect(normalizeCtx.destination);
-                source.start();
-                renderedBuffer = await normalizeCtx.startRendering();
-            }
-
-            zip.file(`${track.name}_${options.includeMasterFx ? 'wet' : 'dry'}.wav`, audioBufferToWav(renderedBuffer));
-        }
-
-        onProgress('Compressing files...');
-        const blob = await zip.generateAsync({ type: 'blob' });
-        return { blob, name: `${preset.name}_stems_${options.includeMasterFx ? 'wet' : 'dry'}.zip` };
-    }
-}
-
-async function renderSongAudio(
-    preset: Preset, 
-    sampleRate: number, 
-    mutedTracks: number[], 
-    soloedTrackId: number | null, 
-    options: { type: 'master' | 'stems-wet' | 'stems-dry', includeMasterFx: boolean, startTime: number, endTime: number },
-    onProgress: (message: string) => void
-): Promise<{ blob: Blob, name: string }> {
+// --- OFFLINE RENDER LOGIC ---
+async function renderAudioOffline(
+    job: any,
+    onProgress: (message: string, value: number) => void
+): Promise<{ trackName?: string; wavData: ArrayBuffer; type: 'master-done' | 'stem-done' }> {
+    const { preset, trackToRenderId, sampleRate, options, mutedTracks, soloedTrackId } = job;
     const { startTime, endTime } = options;
     const totalDuration = endTime - startTime;
     const secondsPerStep = (60.0 / preset.bpm) / 4.0;
     const secondsPerBeat = secondsPerStep * 4;
 
-    const renderMaster = async () => {
-        onProgress('Rendering master track...');
-        const offlineCtx = new OfflineAudioContext(2, Math.ceil(totalDuration * sampleRate), sampleRate);
-        const engine = new AudioEngine(offlineCtx);
-        await engine.init();
+    onProgress('Initializing offline render...', 0.05);
+    await new Promise(resolve => setTimeout(resolve, 50));
 
-        engine.createTrackChannels(preset.tracks);
-        engine.updateBpm(preset.bpm);
+    const offlineCtx = new OfflineAudioContext(2, Math.ceil(totalDuration * sampleRate), sampleRate);
+    const engine = new AudioEngine(offlineCtx);
+    await engine.init();
+
+    onProgress('Setting up audio engine...', 0.1);
+    engine.createTrackChannels(preset.tracks);
+    engine.updateBpm(preset.bpm);
+
+    if (options.type === 'master' || (options.type === 'stems-wet' && options.includeMasterFx)) {
+        engine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
+        engine.updateDelay(preset.globalFxParams.delay, preset.bpm);
+        engine.updateDrive(preset.globalFxParams.drive);
+    } else {
+        engine.updateReverb({ ...preset.globalFxParams.reverb, mix: 0 }, preset.bpm);
+        engine.updateDelay({ ...preset.globalFxParams.delay, mix: 0 }, preset.bpm);
+        engine.updateDrive({ ...preset.globalFxParams.drive, mix: 0 });
+    }
+
+    if (options.type === 'master') {
         engine.updateCharacter(preset.globalFxParams.character);
         engine.updateMasterFilter(preset.globalFxParams.masterFilter);
         engine.updateCompressor(preset.globalFxParams.compressor);
         engine.updateMasterVolume(preset.globalFxParams.masterVolume);
-        engine.updateReverb(preset.globalFxParams.reverb, preset.bpm);
-        engine.updateDelay(preset.globalFxParams.delay, preset.bpm);
-        engine.updateDrive(preset.globalFxParams.drive);
-        
-        (preset.arrangementClips || []).forEach(clip => {
-            const track = preset.tracks.find(t => t.id === clip.trackId);
-            if (!track) return;
-            const isAudible = soloedTrackId === null ? !mutedTracks.includes(track.id) : soloedTrackId === track.id;
-            if (!isAudible) return;
+    } else {
+        engine.updateCharacter({ ...preset.globalFxParams.character, mix: 0 });
+        engine.updateMasterFilter({ type: 'lowpass', cutoff: 20000, resonance: 1 });
+        engine.updateCompressor({ ...preset.globalFxParams.compressor, enabled: false, threshold: 0, makeup: 0 });
+        engine.updateMasterVolume(2.5);
+    }
+    
+    const tracksToProcess = options.type === 'master' 
+        ? preset.tracks 
+        : [preset.tracks.find(t => t.id === trackToRenderId)];
 
+    if (options.type !== 'master') {
+         preset.tracks.forEach(t => {
+            if (t.id !== trackToRenderId) {
+                engine.updateTrackVolume(t.id, 0);
+                 if (options.includeMasterFx) {
+                    engine.updateTrackFxSend(t.id, 'reverb', 0);
+                    engine.updateTrackFxSend(t.id, 'delay', 0);
+                    engine.updateTrackFxSend(t.id, 'drive', 0);
+                }
+            } else {
+                engine.updateTrackVolume(t.id, t.volume);
+            }
+        });
+    }
+
+    onProgress('Scheduling audio events...', 0.2);
+    const playClipsForTrack = (track: Track) => {
+        const isAudible = soloedTrackId === null ? !mutedTracks.includes(track.id) : soloedTrackId === track.id;
+        if (!isAudible && options.type === 'master') return;
+
+        (preset.arrangementClips || []).forEach(clip => {
+            if (clip.trackId !== track.id) return;
+            
             const pattern = track.patterns[clip.patternIndex!];
             if (!pattern) return;
             
             const clipStartSeconds = clip.startTime * secondsPerBeat;
             const clipDurationSeconds = clip.duration * secondsPerBeat;
-
+            
             const firstStepInRenderWindow = Math.floor(Math.max(0, startTime - clipStartSeconds) / secondsPerStep);
             const lastStepInRenderWindow = Math.ceil(Math.max(0, endTime - clipStartSeconds) / secondsPerStep);
-            
+
             for (let step = firstStepInRenderWindow; step < lastStepInRenderWindow; step++) {
                 const stepTimeInClip = step * secondsPerStep;
                 if (stepTimeInClip >= clipDurationSeconds) break;
                 
                 const absoluteTime = clipStartSeconds + stepTimeInClip;
+                if (absoluteTime < startTime || absoluteTime >= endTime) continue;
+
                 const timeInContext = absoluteTime - startTime;
-                
                 const patternStepIndex = step % track.patternLength;
                 const stepState = pattern[patternStepIndex];
-                
                 const loopTimeForAutomation = (patternStepIndex % 64) * secondsPerStep;
                 const loopCountForTrigs = Math.floor(step / track.patternLength);
-
                 engine.playStep(track, stepState, timeInContext, loopTimeForAutomation, loopCountForTrigs);
             }
         });
-        
-        const renderedBuffer = await offlineCtx.startRendering();
-        const wavData = audioBufferToWav(renderedBuffer);
-        return { blob: new Blob([wavData], { type: 'audio/wav' }), name: `${preset.name}_master.wav` };
     };
-
-    const renderStems = async () => {
-        await loadJSZip();
-        const zip = new JSZip();
-        const audibleTracks = preset.tracks.filter(track => soloedTrackId === null ? !mutedTracks.includes(track.id) : soloedTrackId === track.id);
-        const workerPool: Worker[] = [];
-        const maxWorkers = Math.max(1, (navigator.hardwareConcurrency || 4) - 2);
-
-        for (let i = 0; i < maxWorkers; i++) {
-            workerPool.push(new Worker('./export.worker.js'));
-        }
-
-        const trackJobs = audibleTracks.map((track, index) => ({
-            jobId: index,
-            job: {
-                preset: deepClone(preset),
-                trackToRenderId: track.id,
-                sampleRate: sampleRate,
-                options: {
-                    ...options,
-                    startTime,
-                    endTime,
-                },
-                mutedTracks,
-                soloedTrackId,
+    
+    const playPatternForTrack = (track: Track, RENDER_STEPS: number) => {
+         const isAudible = soloedTrackId === null ? !mutedTracks.includes(track.id) : soloedTrackId === track.id;
+         if (isAudible || options.type !== 'master') {
+            for (let i = 0; i < RENDER_STEPS; i++) {
+                const time = i * secondsPerStep;
+                const patternStepIndex = i % track.patternLength;
+                const stepState = track.patterns[track.activePatternIndex][patternStepIndex];
+                engine.playStep(track, stepState, time, time, 0);
             }
-        }));
-
-        let jobsCompleted = 0;
-        await new Promise<void>((resolve, reject) => {
-            let jobIndex = 0;
-            const totalJobs = trackJobs.length;
-
-            const dispatchJob = (worker: Worker) => {
-                if (jobIndex >= totalJobs) return;
-                const job = trackJobs[jobIndex++];
-                onProgress(`Rendering stem (${jobIndex}/${totalJobs}): ${preset.tracks[job.job.trackToRenderId].name}`);
-                worker.postMessage(job);
-            };
-
-            workerPool.forEach(worker => {
-                worker.onmessage = (e) => {
-                    const { jobId, trackName, wavData, type, error } = e.data;
-                    if (type === 'error') {
-                        console.error(`Worker error for job ${jobId}:`, error);
-                        reject(new Error(error));
-                        return;
-                    }
-
-                    if (type === 'stem-done') {
-                        zip.file(`${trackName}_${options.includeMasterFx ? 'wet' : 'dry'}.wav`, wavData);
-                        jobsCompleted++;
-                        if (jobsCompleted === totalJobs) {
-                            resolve();
-                        } else {
-                            dispatchJob(worker);
-                        }
-                    }
-                };
-                worker.onerror = (e) => {
-                    console.error("Worker error:", e);
-                    reject(e);
-                };
-                dispatchJob(worker);
-            });
-        });
-        
-        workerPool.forEach(worker => worker.terminate());
-        onProgress('Compressing files...');
-        const blob = await zip.generateAsync({ type: 'blob' });
-        return { blob, name: `${preset.name}_stems_${options.includeMasterFx ? 'wet' : 'dry'}.zip` };
+         }
     };
 
-    if (options.type === 'master') {
-        return await renderMaster();
+    if (options.source === 'pattern') {
+        tracksToProcess.forEach(track => track && playPatternForTrack(track, 64));
     } else {
-        return await renderStems();
+        tracksToProcess.forEach(track => track && playClipsForTrack(track));
     }
+    
+    onProgress('Rendering audio... This may take a moment.', 0.4);
+    let renderedBuffer = await offlineCtx.startRendering();
+    
+    onProgress('Post-processing audio...', 0.8);
+    const trimThreshold = 0.0001;
+    let firstSample = -1;
+    for (let i = 0; i < renderedBuffer.numberOfChannels; i++) { const data = renderedBuffer.getChannelData(i); for (let j = 0; j < data.length; j++) { if (Math.abs(data[j]) > trimThreshold) { if (firstSample === -1 || j < firstSample) { firstSample = j; } break; } } }
+    if (firstSample > 0 && firstSample < renderedBuffer.length) { const trimmedLength = renderedBuffer.length - firstSample; const tempCtx = new OfflineAudioContext(renderedBuffer.numberOfChannels, trimmedLength, renderedBuffer.sampleRate); const trimmedBuffer = tempCtx.createBuffer(renderedBuffer.numberOfChannels, trimmedLength, renderedBuffer.sampleRate); for (let i = 0; i < renderedBuffer.numberOfChannels; i++) { const channelData = renderedBuffer.getChannelData(i).slice(firstSample); trimmedBuffer.copyToChannel(channelData, i); } renderedBuffer = trimmedBuffer; }
+    
+    let peak = 0;
+    for (let i = 0; i < renderedBuffer.numberOfChannels; i++) { const data = renderedBuffer.getChannelData(i); for (let j = 0; j < data.length; j++) { const absValue = Math.abs(data[j]); if (absValue > peak) { peak = absValue; } } }
+    if (peak > 0) { const gain = 0.98 / peak; const normalizeCtx = new OfflineAudioContext(renderedBuffer.numberOfChannels, renderedBuffer.length, renderedBuffer.sampleRate); const source = normalizeCtx.createBufferSource(); source.buffer = renderedBuffer; const gainNode = normalizeCtx.createGain(); gainNode.gain.value = gain; source.connect(gainNode).connect(normalizeCtx.destination); source.start(); renderedBuffer = await normalizeCtx.startRendering(); }
+
+    onProgress('Encoding WAV file...', 0.95);
+    const wavData = audioBufferToWav(renderedBuffer);
+
+    return {
+        trackName: tracksToProcess[0]?.name,
+        wavData,
+        type: options.type === 'master' ? 'master-done' : 'stem-done'
+    };
 }
+
 
 export const useStore = create<AppState & AppActions>()(
     subscribeWithSelector(
@@ -788,7 +657,6 @@ export const useStore = create<AppState & AppActions>()(
                             state.presets = parsed.presets || INITIAL_PRESET_LIBRARY;
                             
                             let instrumentPresets = parsed.instrumentPresets || INITIAL_INSTRUMENT_PRESET_LIBRARY;
-                            // MIGRATION: Check if instrumentPresets is in the old object format and fix it.
                             if (instrumentPresets && !Array.isArray(instrumentPresets) && typeof instrumentPresets === 'object') {
                                 console.warn("Migrating old instrument preset format from localStorage.");
                                 instrumentPresets = Object.values(instrumentPresets).flat();
@@ -943,7 +811,11 @@ export const useStore = create<AppState & AppActions>()(
                 if (audioEngine) audioEngine.updateBpm(bpm);
             },
             selectTrack: (trackId) => {
-                set({ selectedTrackId: trackId, selectedPLockStep: null });
+                set(state => {
+                    if (state.selectedTrackId === trackId) return;
+                    state.selectedTrackId = trackId;
+                    state.selectedPLockStep = null;
+                });
             },
             renameTrack: (trackId, newName) => {
                 set(state => {
@@ -981,20 +853,23 @@ export const useStore = create<AppState & AppActions>()(
                 });
             },
             handleStepClick: (trackId, stepIndex) => {
-                const { isPLockModeActive, selectedPLockStep, setStepProperty } = get();
-                if (isPLockModeActive) {
-                    if (selectedPLockStep?.trackId === trackId && selectedPLockStep?.stepIndex === stepIndex) {
-                        set({ selectedPLockStep: null });
+                set(state => {
+                    if (state.isPLockModeActive) {
+                        if (state.selectedPLockStep?.trackId === trackId && state.selectedPLockStep?.stepIndex === stepIndex) {
+                            state.selectedPLockStep = null;
+                        } else {
+                            state.selectedPLockStep = { trackId, stepIndex };
+                        }
                     } else {
-                        set({ selectedPLockStep: { trackId, stepIndex } });
+                        const track = state.preset.tracks.find(t => t.id === trackId);
+                        if (track) {
+                            const step = track.patterns[track.activePatternIndex][stepIndex];
+                            if(step) {
+                                step.active = !step.active;
+                            }
+                        }
                     }
-                } else {
-                    const track = get().preset.tracks.find(t => t.id === trackId);
-                    if (track) {
-                        const step = track.patterns[track.activePatternIndex][stepIndex];
-                        setStepProperty(trackId, stepIndex, 'active', !step.active);
-                    }
-                }
+                });
             },
             setParam: (path, value) => {
                 const { selectedTrackId, selectedPLockStep } = get();
@@ -1012,43 +887,27 @@ export const useStore = create<AppState & AppActions>()(
                     get().setParamForTrack(selectedTrackId, path, value);
                 }
             },
-             _recordAutomationPoint: (state, trackId, path, value) => {
-                const track = state.preset.tracks.find(t => t.id === trackId);
-                const { currentPlayheadTime } = get();
-                const secondsPerBeat = 60 / state.preset.bpm;
-                const timeInBeats = currentPlayheadTime / secondsPerBeat;
-                
-                if (track) {
-                    if (!track.automation[path]) track.automation[path] = [];
-
-                    if (state.automationRecording?.mode === 'overwrite' && !state.overwriteTouchedParams.has(path)) {
-                        track.automation[path] = [];
-                        state.overwriteTouchedParams.add(path);
-                    }
-                    
-                    track.automation[path].push({ time: timeInBeats, value });
-                    const points = track.automation[path];
-                    if (points.length > 2) {
-                        const last = points[points.length - 1];
-                        const secondLast = points[points.length - 2];
-                        const thirdLast = points[points.length - 3];
-                        if (last.time - secondLast.time < 0.05) {
-                           const slope1 = (last.value - thirdLast.value) / (last.time - thirdLast.time);
-                           const slope2 = (secondLast.value - thirdLast.value) / (secondLast.time - thirdLast.time);
-                           if (Math.abs(slope1 - slope2) < 0.01) {
-                               points.splice(points.length - 2, 1);
-                           }
-                        }
-                    }
-                }
-            },
             setParamForTrack: (trackId, path, value) => {
                 set(state => {
                     const track = state.preset.tracks.find(t => t.id === trackId);
                     if (track) {
                         setDeep(track.params, path, value);
                         if (state.automationRecording?.trackId === trackId) {
-                            get()._recordAutomationPoint(state, trackId, `params.${path}`, value);
+                            const fullPath = `params.${path}`;
+                            // If this is the first move for this param in this session, clear previous automation.
+                            if (!state.overwriteTouchedParams.has(fullPath)) {
+                                track.automation[fullPath] = [];
+                                state.overwriteTouchedParams.add(fullPath);
+                            }
+                            const { currentPlayheadTime, mainView, preset } = state;
+                            const secondsPerBeat = 60 / preset.bpm;
+                            let timeInBeats = currentPlayheadTime / secondsPerBeat;
+                            if (mainView === 'pattern') timeInBeats %= (64 / 4);
+                            // Ensure the array exists before pushing
+                            if (!track.automation[fullPath]) {
+                                track.automation[fullPath] = [];
+                            }
+                            track.automation[fullPath].push({ time: timeInBeats, value });
                         }
                     }
                 });
@@ -1128,49 +987,85 @@ export const useStore = create<AppState & AppActions>()(
             },
             setTrackVolume: (trackId, volume) => {
                 set(state => {
-                    const { selectedPLockStep } = state;
-                    if (selectedPLockStep?.trackId === trackId) {
-                        const step = state.preset.tracks[trackId].patterns[state.preset.tracks[trackId].activePatternIndex][selectedPLockStep.stepIndex];
-                        if (!step.pLocks) step.pLocks = {};
-                        step.pLocks.volume = volume;
-                    } else {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (track) track.volume = volume;
-                        if (state.automationRecording?.trackId === trackId) {
-                            get()._recordAutomationPoint(state, trackId, `volume`, volume);
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        const { selectedPLockStep } = state;
+                        if (selectedPLockStep?.trackId === trackId) {
+                            const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                            if (!step.pLocks) step.pLocks = {};
+                            step.pLocks.volume = volume;
+                        } else {
+                            track.volume = volume;
+                            if (state.automationRecording?.trackId === trackId) {
+                                const fullPath = 'volume';
+                                if (!state.overwriteTouchedParams.has(fullPath)) {
+                                    track.automation[fullPath] = [];
+                                    state.overwriteTouchedParams.add(fullPath);
+                                }
+                                const { currentPlayheadTime, mainView, preset } = state;
+                                const secondsPerBeat = 60 / preset.bpm;
+                                let timeInBeats = currentPlayheadTime / secondsPerBeat;
+                                if (mainView === 'pattern') timeInBeats %= (64 / 4);
+                                if (!track.automation[fullPath]) track.automation[fullPath] = [];
+                                track.automation[fullPath].push({ time: timeInBeats, value: volume });
+                            }
                         }
                     }
                 });
             },
             setTrackPan: (trackId, pan) => {
                  set(state => {
-                    const { selectedPLockStep } = state;
-                    if (selectedPLockStep?.trackId === trackId) {
-                        const step = state.preset.tracks[trackId].patterns[state.preset.tracks[trackId].activePatternIndex][selectedPLockStep.stepIndex];
-                        if (!step.pLocks) step.pLocks = {};
-                        step.pLocks.pan = pan;
-                    } else {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (track) track.pan = pan;
-                        if (state.automationRecording?.trackId === trackId) {
-                            get()._recordAutomationPoint(state, trackId, `pan`, pan);
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        const { selectedPLockStep } = state;
+                        if (selectedPLockStep?.trackId === trackId) {
+                            const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                            if (!step.pLocks) step.pLocks = {};
+                            step.pLocks.pan = pan;
+                        } else {
+                            track.pan = pan;
+                            if (state.automationRecording?.trackId === trackId) {
+                                const fullPath = 'pan';
+                                if (!state.overwriteTouchedParams.has(fullPath)) {
+                                    track.automation[fullPath] = [];
+                                    state.overwriteTouchedParams.add(fullPath);
+                                }
+                                const { currentPlayheadTime, mainView, preset } = state;
+                                const secondsPerBeat = 60 / preset.bpm;
+                                let timeInBeats = currentPlayheadTime / secondsPerBeat;
+                                if (mainView === 'pattern') timeInBeats %= (64 / 4);
+                                if (!track.automation[fullPath]) track.automation[fullPath] = [];
+                                track.automation[fullPath].push({ time: timeInBeats, value: pan });
+                            }
                         }
                     }
                 });
             },
             setFxSend: (trackId, fx, value) => {
                 set(state => {
-                    const { selectedPLockStep } = state;
-                    if (selectedPLockStep?.trackId === trackId) {
-                         const step = state.preset.tracks[trackId].patterns[state.preset.tracks[trackId].activePatternIndex][selectedPLockStep.stepIndex];
-                        if (!step.pLocks) step.pLocks = {};
-                        if (!step.pLocks.fxSends) step.pLocks.fxSends = {};
-                        step.pLocks.fxSends[fx] = value;
-                    } else {
-                        const track = state.preset.tracks.find(t => t.id === trackId);
-                        if (track) track.fxSends[fx] = value;
-                        if (state.automationRecording?.trackId === trackId) {
-                           get()._recordAutomationPoint(state, trackId, `fxSends.${fx}`, value);
+                    const track = state.preset.tracks.find(t => t.id === trackId);
+                    if (track) {
+                        const { selectedPLockStep } = state;
+                        if (selectedPLockStep?.trackId === trackId) {
+                            const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                            if (!step.pLocks) step.pLocks = {};
+                            if (!step.pLocks.fxSends) step.pLocks.fxSends = {};
+                            step.pLocks.fxSends[fx] = value;
+                        } else {
+                            track.fxSends[fx] = value;
+                            if (state.automationRecording?.trackId === trackId) {
+                                const fullPath = `fxSends.${fx}`;
+                                if (!state.overwriteTouchedParams.has(fullPath)) {
+                                    track.automation[fullPath] = [];
+                                    state.overwriteTouchedParams.add(fullPath);
+                                }
+                                const { currentPlayheadTime, mainView, preset } = state;
+                                const secondsPerBeat = 60 / preset.bpm;
+                                let timeInBeats = currentPlayheadTime / secondsPerBeat;
+                                if (mainView === 'pattern') timeInBeats %= (64 / 4);
+                                if (!track.automation[fullPath]) track.automation[fullPath] = [];
+                                track.automation[fullPath].push({ time: timeInBeats, value });
+                            }
                         }
                     }
                 });
@@ -1228,13 +1123,13 @@ export const useStore = create<AppState & AppActions>()(
                     }
                 });
             },
-             startAutomationRecording: (trackId, mode) => {
+             startAutomationRecording: (trackId) => {
                 const trackName = get().preset.tracks.find(t => t.id === trackId)?.name || 'Unknown Track';
                 set(state => {
-                    state.automationRecording = { trackId, mode };
+                    state.automationRecording = { trackId };
                     state.overwriteTouchedParams.clear();
                 });
-                get().addNotification({ type: 'info', message: `Recording automation for ${trackName} (${mode})` });
+                get().addNotification({ type: 'info', message: `Recording automation for ${trackName}` });
             },
             stopAutomationRecording: () => {
                 const automationRecording = get().automationRecording;
@@ -1435,10 +1330,8 @@ export const useStore = create<AppState & AppActions>()(
                             set(state => {
                                 const existingIndex = state.presets.findIndex(p => p.name === newPreset.name);
                                 if (existingIndex > -1) {
-                                    // Overwrite existing project with the same name
                                     state.presets[existingIndex] = newPreset;
                                 } else {
-                                    // Add as a new project
                                     state.presets.push(newPreset);
                                 }
                             });
@@ -1468,26 +1361,79 @@ export const useStore = create<AppState & AppActions>()(
                 }
             },
             exportAudio: async (options) => {
-                set({ isExporting: true, exportProgress: 'Starting export...' });
+                set({ isExporting: true, exportProgress: 'Starting export...', exportProgressValue: 0 });
                 const { preset, mainView, arrangementLoop, mutedTracks, soloedTrackId } = get();
                 const sampleRate = 44100;
                 
                 try {
                     let result;
-                    if (mainView === 'song') {
-                        let startTime = 0;
-                        let endTime = 0;
-                        if (options.source === 'song-full') {
-                           endTime = (preset.arrangementClips || []).reduce((max, c) => Math.max(max, c.startTime + c.duration), 0);
+                    if (options.type === 'master') {
+                        let startTime = 0, endTime = 0;
+                        if (mainView === 'song') {
+                            if (options.source === 'song-full') {
+                                endTime = (preset.arrangementClips || []).reduce((max, c) => Math.max(max, c.startTime + c.duration), 0);
+                            } else {
+                                if (!arrangementLoop) throw new Error("Arrangement loop is not set.");
+                                startTime = arrangementLoop.start;
+                                endTime = arrangementLoop.end;
+                            }
+                            const secondsPerBeat = 60 / preset.bpm;
+                            startTime *= secondsPerBeat;
+                            endTime *= secondsPerBeat;
                         } else {
-                           if (!arrangementLoop) throw new Error("Arrangement loop is not set.");
-                           startTime = arrangementLoop.start;
-                           endTime = arrangementLoop.end;
+                            const secondsPerStep = (60.0 / preset.bpm) / 4.0;
+                            endTime = 64 * secondsPerStep;
                         }
-                        const secondsPerBeat = 60 / preset.bpm;
-                        result = await renderSongAudio(preset, sampleRate, mutedTracks, soloedTrackId, { ...options, startTime: startTime * secondsPerBeat, endTime: endTime * secondsPerBeat }, (progress) => set({ exportProgress: progress }));
+                        
+                        const job = { preset: deepClone(preset), sampleRate, options: { ...options, startTime, endTime }, mutedTracks, soloedTrackId };
+                        const renderResult = await renderAudioOffline(job, (message, value) => {
+                            set({ exportProgress: message, exportProgressValue: value });
+                        });
+                        
+                        result = { blob: new Blob([renderResult.wavData], { type: 'audio/wav' }), name: `${preset.name}_master.wav` };
+
                     } else {
-                        result = await renderPatternAudio(preset, sampleRate, mutedTracks, soloedTrackId, options, (progress) => set({ exportProgress: progress }));
+                         await loadJSZip();
+                        const zip = new JSZip();
+                        const audibleTracks = preset.tracks.filter(track =>
+                            track.type !== 'midi' &&
+                            (soloedTrackId === null ? !mutedTracks.includes(track.id) : soloedTrackId === track.id)
+                        );
+                        
+                        for (let i = 0; i < audibleTracks.length; i++) {
+                            const track = audibleTracks[i];
+                             set({ 
+                                exportProgress: `Rendering stem (${i + 1}/${audibleTracks.length}): ${track.name}...`,
+                                exportProgressValue: i / audibleTracks.length,
+                             });
+                             await new Promise(resolve => setTimeout(resolve, 50)); // Allow UI to update
+
+                            let startTime = 0, endTime = 0;
+                            if (mainView === 'song') {
+                                if (options.source === 'song-full') {
+                                    endTime = (preset.arrangementClips || []).reduce((max, c) => Math.max(max, c.startTime + c.duration), 0);
+                                } else {
+                                    if (!arrangementLoop) throw new Error("Arrangement loop is not set.");
+                                    startTime = arrangementLoop.start;
+                                    endTime = arrangementLoop.end;
+                                }
+                                const secondsPerBeat = 60 / preset.bpm;
+                                startTime *= secondsPerBeat;
+                                endTime *= secondsPerBeat;
+                            } else {
+                                const secondsPerStep = (60.0 / preset.bpm) / 4.0;
+                                endTime = 64 * secondsPerStep;
+                            }
+
+                            const job = { preset: deepClone(preset), trackToRenderId: track.id, sampleRate, options: { ...options, startTime, endTime }, mutedTracks, soloedTrackId };
+                            const renderResult = await renderAudioOffline(job, () => {}); // No-op for internal progress
+                            
+                            zip.file(`${renderResult.trackName}_${options.includeMasterFx ? 'wet' : 'dry'}.wav`, renderResult.wavData);
+                        }
+                        
+                        set({ exportProgress: 'Compressing files...', exportProgressValue: 1 });
+                        const blob = await zip.generateAsync({ type: 'blob' });
+                        result = { blob, name: `${preset.name}_stems_${options.includeMasterFx ? 'wet' : 'dry'}.zip` };
                     }
 
                     downloadBlob(result.blob, result.name);
@@ -1495,10 +1441,14 @@ export const useStore = create<AppState & AppActions>()(
                     return result;
                 } catch (error) {
                     console.error("Export failed:", error);
-                    get().addNotification({ type: 'error', message: `Export failed: ${error}` });
+                    let message = `Export failed: ${error instanceof Error ? error.message : String(error)}`;
+                    if (error instanceof DOMException && error.name === 'SecurityError') {
+                        message = "Export failed due to browser security restrictions. Please run this app from a local web server.";
+                    }
+                    get().addNotification({ type: 'error', message });
                     throw error;
                 } finally {
-                    set({ isExporting: false, exportProgress: '' });
+                    set({ isExporting: false, exportProgress: '', exportProgressValue: 0 });
                 }
             },
             renderJamVideoAudio: async () => {
@@ -1859,7 +1809,6 @@ export const useStore = create<AppState & AppActions>()(
                         track.params = deepClone(preset.params);
                         track.loadedInstrumentPresetName = preset.name;
                     } else {
-                        // Find first track of matching type
                         const matchingTrack = state.preset.tracks.find(t => t.type === preset.type);
                         if (matchingTrack) {
                             matchingTrack.params = deepClone(preset.params);
@@ -1954,7 +1903,7 @@ export const useStore = create<AppState & AppActions>()(
                         const track = state.preset.tracks.find(t => t.id === state.selectedTrackId);
                         if (track) {
                             track.patterns[track.activePatternIndex] = deepClone(state.copiedPattern.pattern);
-                            get().addNotification({ type: 'info', message: `Pattern pasted to ${track.name}.` });
+                            get().addNotification({ type: 'info', message: `Pasted to ${track.name}.` });
                         }
                     }
                  });

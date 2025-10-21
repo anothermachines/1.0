@@ -208,7 +208,7 @@ const AppContent: React.FC = () => {
         init, startAudio, isAudioReady, mainView, showWelcomeScreen, hideWelcomeScreen, showQuickStart, toggleQuickStart, showFullscreenPrompt,
         isPresetManagerOpen, isExportModalOpen, isStoreOpen, isSettingsModalOpen, isManualOpen, isLicenseModalOpen, isShareJamOpen,
         togglePresetManager, toggleExportModal, toggleStore, toggleSettingsModal, toggleManual, toggleLicenseModal, toggleShareJamModal,
-        appearanceTheme, setAppearanceTheme, accentTheme, setAccentTheme, isExporting, exportProgress,
+        appearanceTheme, setAppearanceTheme, accentTheme, setAccentTheme, isExporting, exportProgress, exportProgressValue,
         setMidiOutputs, setAudioOutputDevices, audioEngineInstanceId, isViewerMode,
         selectedPLockStep, copyStep, pasteStep, copyPattern, pastePattern, togglePlay
     } = useStore(state => ({
@@ -241,6 +241,7 @@ const AppContent: React.FC = () => {
         setAccentTheme: state.setAccentTheme,
         isExporting: state.isExporting,
         exportProgress: state.exportProgress,
+        exportProgressValue: state.exportProgressValue,
         setMidiOutputs: state.setMidiOutputs,
         setAudioOutputDevices: state.setAudioOutputDevices,
         audioEngineInstanceId: state.audioEngineInstanceId,
@@ -446,9 +447,15 @@ const AppContent: React.FC = () => {
         
         {isExporting && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                <div className="bg-[var(--bg-panel)] p-8 rounded-lg border border-[var(--border-color)] text-center">
+                <div className="bg-[var(--bg-panel)] p-8 rounded-lg border border-[var(--border-color)] text-center w-full max-w-md">
                     <p className="text-lg font-bold mb-2">Exporting Audio...</p>
-                    <p className="text-sm text-neutral-400">{exportProgress}</p>
+                    <p className="text-sm text-neutral-400 mb-4">{exportProgress}</p>
+                    <div className="w-full bg-black/30 rounded-full h-4 border border-neutral-700 overflow-hidden">
+                        <div 
+                            className="bg-[var(--accent-color)] h-full rounded-full transition-all duration-300"
+                            style={{ width: `${exportProgressValue * 100}%` }}
+                        />
+                    </div>
                 </div>
             </div>
         )}

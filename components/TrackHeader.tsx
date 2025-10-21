@@ -12,18 +12,25 @@ interface TrackHeaderProps {
 }
 
 const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected, isAudible, className = '' }) => {
-    const { selectTrack, toggleMute, toggleSolo, soloedTrackId, renameTrack, isViewerMode } = useStore(state => ({
+    // Select actions separately. They are static and won't cause re-renders.
+    const { selectTrack, toggleMute, toggleSolo, renameTrack } = useStore(state => ({
         selectTrack: state.selectTrack,
         toggleMute: state.toggleMute,
         toggleSolo: state.toggleSolo,
-        soloedTrackId: state.soloedTrackId,
         renameTrack: state.renameTrack,
+    }), shallow);
+
+    // This granular subscription ensures the component only re-renders for its own mute/solo state,
+    // preventing interference with the `isSelected` prop passed from the parent.
+    const { isMuted, isSoloed, soloedTrackId, isViewerMode } = useStore(state => ({
+        isMuted: state.mutedTracks.includes(track.id),
+        isSoloed: state.soloedTrackId === track.id,
+        soloedTrackId: state.soloedTrackId,
         isViewerMode: state.isViewerMode,
     }), shallow);
 
+
     const { isLearning, learningTarget, mapTarget } = useMidiMapping();
-    const isMuted = useStore(state => state.mutedTracks.includes(track.id));
-    const isSoloed = soloedTrackId === track.id;
 
     const [isEditing, setIsEditing] = useState(false);
     const [editName, setEditName] = useState(track.name);
