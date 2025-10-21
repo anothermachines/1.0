@@ -284,11 +284,20 @@ export class AudioEngine {
             
             const panner = this.audioContext.createStereoPanner(); panner.pan.value = track.pan;
             const analyser = this.audioContext.createAnalyser(); analyser.fftSize = 256;
+
+            // DC Offset Filter to clean up signal before mix bus and sends
+            const dcOffsetFilter = this.audioContext.createBiquadFilter();
+            dcOffsetFilter.type = 'highpass';
+            dcOffsetFilter.frequency.setValueAtTime(10, this.audioContext.currentTime); // Cut frequencies below 10Hz
+            dcOffsetFilter.Q.setValueAtTime(1, this.audioContext.currentTime); // Neutral Q
+
             const sends = { reverb: this.audioContext.createGain(), delay: this.audioContext.createGain(), drive: this.audioContext.createGain(), sidechain: this.audioContext.createGain() };
             sends.reverb.connect(this.reverbBus); sends.delay.connect(this.delayBus); sends.drive.connect(this.driveBus);
-            limiter.connect(gain).connect(panner).connect(analyser);
+            
+            limiter.connect(gain).connect(panner).connect(dcOffsetFilter).connect(analyser); // Filter added here
+
             if (track.type !== 'midi') { // MIDI tracks produce no audio
-                // FIX: Renamed private property to avoid conflict with public getter.
+                // The analyser (now receiving the filtered signal) connects to the buses.
                 analyser.connect(this._preCompressorBus); 
                 analyser.connect(sends.reverb); 
                 analyser.connect(sends.delay); 
