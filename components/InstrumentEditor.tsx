@@ -112,7 +112,7 @@ const OutputSection: React.FC<{
   onVolumeChange: (trackId: number, volume: number) => void;
   onPanChange: (trackId: number, pan: number) => void;
   onFxSendChange: (trackId: number, fx: keyof FXSends, value: number) => void;
-}> = ({ track, pLocks, onVolumeChange, onPanChange, onFxSendChange }) => {
+}> = React.memo(({ track, pLocks, onVolumeChange, onPanChange, onFxSendChange }) => {
     const isMidiTrack = track.type === 'midi';
 
     const handleVolumeChange = useCallback((v: number) => onVolumeChange(track.id, v), [track.id, onVolumeChange]);
@@ -194,7 +194,7 @@ const OutputSection: React.FC<{
             />
         </Section>
     );
-};
+});
 
 const EnvelopeSection: React.FC<{
     title: string;
@@ -203,7 +203,7 @@ const EnvelopeSection: React.FC<{
     pLocks: PLocks | null;
     onParamChange: (path: string, value: any) => void;
     extraControls?: React.ReactNode;
-}> = ({ title, basePath, track, pLocks, onParamChange, extraControls }) => {
+}> = React.memo(({ title, basePath, track, pLocks, onParamChange, extraControls }) => {
     const handleAttackChange = useCallback((v: number) => onParamChange(`${basePath}.attack`, v), [basePath, onParamChange]);
     const handleDecayChange = useCallback((v: number) => onParamChange(`${basePath}.decay`, v), [basePath, onParamChange]);
     const handleSustainChange = useCallback((v: number) => onParamChange(`${basePath}.sustain`, v), [basePath, onParamChange]);
@@ -218,14 +218,14 @@ const EnvelopeSection: React.FC<{
             {extraControls}
         </Section>
     );
-};
+});
 
 const FilterSection: React.FC<{
   basePath: 'filter';
   track: Track;
   pLocks: PLocks | null;
   onParamChange: (path: string, value: any) => void;
-}> = ({ basePath, track, pLocks, onParamChange }) => {
+}> = React.memo(({ basePath, track, pLocks, onParamChange }) => {
     const handleTypeChange = useCallback((v: any) => onParamChange(`${basePath}.type`, v), [basePath, onParamChange]);
     const handleCutoffChange = useCallback((v: number) => onParamChange(`${basePath}.cutoff`, v), [basePath, onParamChange]);
     const handleResoChange = useCallback((v: number) => onParamChange(`${basePath}.resonance`, v), [basePath, onParamChange]);
@@ -237,7 +237,7 @@ const FilterSection: React.FC<{
             <Knob label="RESO" value={getParamValue(track, pLocks, `${basePath}.resonance`)} min={0.1} max={30} step={0.1} onChange={handleResoChange} isPLocked={isParamLocked(track, pLocks, `${basePath}.resonance`)} isAutomated={isAutomated(track, `params.${basePath}.resonance`)} mapInfo={{ path: `tracks.${track.id}.params.${basePath}.resonance`, label: `${track.name} Reso` }}/>
         </Section>
     );
-};
+});
 
 const LFOSection: React.FC<{
   title: string;
@@ -246,7 +246,7 @@ const LFOSection: React.FC<{
   pLocks: PLocks | null;
   onParamChange: (path: string, value: any) => void;
   destinations: {value: LFODestination, label: string}[];
-}> = ({ title, basePath, track, pLocks, onParamChange, destinations }) => {
+}> = React.memo(({ title, basePath, track, pLocks, onParamChange, destinations }) => {
     const isSync = getParamValue(track, pLocks, `${basePath}.rateSync`);
 
     const handleWaveChange = useCallback((v: any) => onParamChange(`${basePath}.waveform`, v), [basePath, onParamChange]);
@@ -275,7 +275,7 @@ const LFOSection: React.FC<{
              </div>
         </Section>
     );
-};
+});
 
 interface InstrumentEditorComponentsProps {
   track: Track;
@@ -283,7 +283,7 @@ interface InstrumentEditorComponentsProps {
   onParamChange: (path: string, value: any) => void;
 }
 
-const KickEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, onParamChange }) => {
+const KickEditor: React.FC<InstrumentEditorComponentsProps> = React.memo(({ track, pLocks, onParamChange }) => {
     const DESTINATIONS: {value: LFODestination, label: string}[] = [ ...COMMON_DESTINATIONS, {value: 'kick.tune', label: 'TUNE'}, {value: 'kick.impact', label: 'IMPACT'}, {value: 'kick.tone', label: 'TONE'}, {value: 'kick.character', label: 'CHAR'} ];
     
     const handleTuneChange = useCallback((v: number) => onParamChange('tune', v), [onParamChange]);
@@ -305,9 +305,9 @@ const KickEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, 
         <LFOSection title="LFO 1" basePath="lfo1" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
         <LFOSection title="LFO 2" basePath="lfo2" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
     </>;
-};
+});
 
-const HatEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, onParamChange }) => {
+const HatEditor: React.FC<InstrumentEditorComponentsProps> = React.memo(({ track, pLocks, onParamChange }) => {
     const DESTINATIONS: {value: LFODestination, label: string}[] = [ ...COMMON_DESTINATIONS, {value: 'hat.tone', label: 'TONE'}, {value: 'hat.character', label: 'CHAR'}, {value: 'hat.spread', label: 'SPREAD'} ];
     
     const handleToneChange = useCallback((v: number) => onParamChange('tone', v), [onParamChange]);
@@ -327,10 +327,10 @@ const HatEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, o
         <LFOSection title="LFO 1" basePath="lfo1" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
         <LFOSection title="LFO 2" basePath="lfo2" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
     </>;
-};
+});
 
 // --- NEW ENGINE EDITORS ---
-const ArcaneEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, onParamChange }) => {
+const ArcaneEditor: React.FC<InstrumentEditorComponentsProps> = React.memo(({ track, pLocks, onParamChange }) => {
     const params = track.params as ArcaneParams;
     const DESTINATIONS: {value: LFODestination, label: string}[] = [ ...COMMON_DESTINATIONS,
         {value: 'arcane.osc1_shape', label: 'OSC1 SHAPE'}, {value: 'arcane.osc2_shape', label: 'OSC2 SHAPE'},
@@ -358,9 +358,9 @@ const ArcaneEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks
         <LFOSection title="LFO 1" basePath="lfo1" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
         <LFOSection title="LFO 2" basePath="lfo2" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
     </>;
-};
+});
 
-const RuinEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, onParamChange }) => {
+const RuinEditor: React.FC<InstrumentEditorComponentsProps> = React.memo(({ track, pLocks, onParamChange }) => {
     const params = track.params as RuinParams;
     const DESTINATIONS: {value: LFODestination, label: string}[] = [ ...COMMON_DESTINATIONS,
         {value: 'ruin.pitch', label: 'PITCH'}, {value: 'ruin.timbre', label: 'TIMBRE'},
@@ -385,9 +385,9 @@ const RuinEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, 
         <LFOSection title="LFO 1" basePath="lfo1" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
         <LFOSection title="LFO 2" basePath="lfo2" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
     </>;
-};
+});
 
-const ArtificeEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, onParamChange }) => {
+const ArtificeEditor: React.FC<InstrumentEditorComponentsProps> = React.memo(({ track, pLocks, onParamChange }) => {
     const params = track.params as ArtificeParams;
     const DESTINATIONS: {value: LFODestination, label: string}[] = [ ...COMMON_DESTINATIONS,
         {value: 'artifice.osc1_shape', label: 'OSC1 SHAPE'}, {value: 'artifice.osc2_shape', label: 'OSC2 SHAPE'},
@@ -423,9 +423,9 @@ const ArtificeEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLoc
         <LFOSection title="LFO 1" basePath="lfo1" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
         <LFOSection title="LFO 2" basePath="lfo2" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
     </>;
-};
+});
 
-const ShiftEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, onParamChange }) => {
+const ShiftEditor: React.FC<InstrumentEditorComponentsProps> = React.memo(({ track, pLocks, onParamChange }) => {
     const params = track.params as ShiftParams;
     const DESTINATIONS: {value: LFODestination, label: string}[] = [ ...COMMON_DESTINATIONS,
         {value: 'shift.pitch', label: 'PITCH'}, {value: 'shift.position', label: 'POSITION'},
@@ -446,9 +446,9 @@ const ShiftEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks,
         <LFOSection title="LFO 1" basePath="lfo1" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
         <LFOSection title="LFO 2" basePath="lfo2" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
     </>;
-};
+});
 
-const ResonEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, onParamChange }) => {
+const ResonEditor: React.FC<InstrumentEditorComponentsProps> = React.memo(({ track, pLocks, onParamChange }) => {
     const params = track.params as ResonParams;
     const DESTINATIONS: {value: LFODestination, label: string}[] = [ ...COMMON_DESTINATIONS,
         {value: 'reson.pitch', label: 'PITCH'}, {value: 'reson.structure', label: 'STRUCTURE'},
@@ -473,9 +473,9 @@ const ResonEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks,
         <LFOSection title="LFO 1" basePath="lfo1" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
         <LFOSection title="LFO 2" basePath="lfo2" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
     </>;
-};
+});
 
-const AlloyEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks, onParamChange }) => {
+const AlloyEditor: React.FC<InstrumentEditorComponentsProps> = React.memo(({ track, pLocks, onParamChange }) => {
     const params = track.params as AlloyParams;
     const DESTINATIONS: {value: LFODestination, label: string}[] = [ ...COMMON_DESTINATIONS,
         {value: 'alloy.pitch', label: 'PITCH'}, {value: 'alloy.ratio', label: 'RATIO'},
@@ -500,7 +500,7 @@ const AlloyEditor: React.FC<InstrumentEditorComponentsProps> = ({ track, pLocks,
         <LFOSection title="LFO 1" basePath="lfo1" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
         <LFOSection title="LFO 2" basePath="lfo2" track={track} pLocks={pLocks} onParamChange={onParamChange} destinations={DESTINATIONS} />
     </>;
-};
+});
 
 const MidiOutEditor: React.FC<{
     track: Track;
@@ -509,7 +509,7 @@ const MidiOutEditor: React.FC<{
     onAddCcLock: () => void;
     onUpdateCcLock: (id: string, cc?: number, value?: number) => void;
     onRemoveCcLock: (id: string) => void;
-}> = ({ track, pLocks, onParamChange, onAddCcLock, onUpdateCcLock, onRemoveCcLock }) => {
+}> = React.memo(({ track, pLocks, onParamChange, onAddCcLock, onUpdateCcLock, onRemoveCcLock }) => {
     const midiOutputs = useStore(state => state.midiOutputs);
     const outputOptions = [{ value: null, label: 'NONE' }, ...midiOutputs.map(o => ({ value: o.id, label: o.name || `Output ${o.id.substring(0,6)}` }))];
     const channelOptions = Array.from({ length: 16 }, (_, i) => ({ value: i + 1, label: `CH ${i + 1}` }));
@@ -536,7 +536,7 @@ const MidiOutEditor: React.FC<{
             </Section>
         </div>
     );
-};
+});
 
 
 const InstrumentEditor: React.FC = () => {

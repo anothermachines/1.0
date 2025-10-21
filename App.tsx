@@ -42,7 +42,7 @@ const AppLogo: React.FC = () => (
                     </feMerge>
                  </filter>
             </defs>
-            <g className="group-hover:scale-105 transition-transform" style={{ animation: 'logo-breathe 4s ease-in-out infinite' }}>
+            <g className="group-hover:scale-105 transition-transform logo-breathe" style={{ animation: 'logo-breathe 4s ease-in-out infinite' }}>
                 <path d="M26 2L1 13.5V36.5L26 48L51 36.5V13.5L26 2Z" stroke="var(--accent-color)" strokeWidth="2.5" strokeLinejoin="round" fill="var(--bg-panel-dark)" />
                 <path d="M26 13L13 20V32L26 39L39 32V20L26 13Z" stroke="var(--accent-color)" strokeWidth="1.5" strokeOpacity="0.5" />
                 <path d="M1 13.5L26 24.5L51 13.5" stroke="var(--accent-color)" strokeWidth="1" strokeOpacity="0.4" />
@@ -202,50 +202,47 @@ const CenterPanel: React.FC = () => {
   );
 };
 
-const AppContent: React.FC = () => {
-    // Consolidated state selection
-    const { 
-        init, startAudio, isAudioReady, mainView, showWelcomeScreen, hideWelcomeScreen, showQuickStart, toggleQuickStart, showFullscreenPrompt,
-        isPresetManagerOpen, isExportModalOpen, isStoreOpen, isSettingsModalOpen, isManualOpen, isLicenseModalOpen, isShareJamOpen,
-        togglePresetManager, toggleExportModal, toggleStore, toggleSettingsModal, toggleManual, toggleLicenseModal, toggleShareJamModal,
-        appearanceTheme, setAppearanceTheme, accentTheme, setAccentTheme, isExporting, exportProgress, exportProgressValue,
-        setMidiOutputs, setAudioOutputDevices, audioEngineInstanceId, isViewerMode,
-        selectedPLockStep, copyStep, pasteStep, copyPattern, pastePattern, togglePlay
-    } = useStore(state => ({
-        init: state.init,
-        startAudio: state.startAudio,
-        isAudioReady: state.isAudioReady,
-        mainView: state.mainView,
-        showWelcomeScreen: state.showWelcomeScreen,
-        hideWelcomeScreen: state.hideWelcomeScreen,
-        showQuickStart: state.showQuickStart,
-        toggleQuickStart: state.toggleQuickStart,
-        showFullscreenPrompt: state.showFullscreenPrompt,
-        isPresetManagerOpen: state.isPresetManagerOpen,
-        isExportModalOpen: state.isExportModalOpen,
-        isStoreOpen: state.isStoreOpen,
-        isSettingsModalOpen: state.isSettingsModalOpen,
-        isManualOpen: state.isManualOpen,
-        isLicenseModalOpen: state.isLicenseModalOpen,
-        isShareJamOpen: state.isShareJamOpen,
-        togglePresetManager: state.togglePresetManager,
-        toggleExportModal: state.toggleExportModal,
-        toggleStore: state.toggleStore,
-        toggleSettingsModal: state.toggleSettingsModal,
-        toggleManual: state.toggleManual,
-        toggleLicenseModal: state.toggleLicenseModal,
-        toggleShareJamModal: state.toggleShareJamModal,
-        appearanceTheme: state.appearanceTheme,
-        setAppearanceTheme: state.setAppearanceTheme,
-        accentTheme: state.accentTheme,
-        setAccentTheme: state.setAccentTheme,
-        isExporting: state.isExporting,
-        exportProgress: state.exportProgress,
-        exportProgressValue: state.exportProgressValue,
-        setMidiOutputs: state.setMidiOutputs,
-        setAudioOutputDevices: state.setAudioOutputDevices,
-        audioEngineInstanceId: state.audioEngineInstanceId,
-        isViewerMode: state.isViewerMode,
+// --- Granular Hooks for Performance ---
+const useModalManager = () => useStore(state => ({
+    isPresetManagerOpen: state.isPresetManagerOpen,
+    isExportModalOpen: state.isExportModalOpen,
+    isStoreOpen: state.isStoreOpen,
+    isSettingsModalOpen: state.isSettingsModalOpen,
+    isManualOpen: state.isManualOpen,
+    isLicenseModalOpen: state.isLicenseModalOpen,
+    isShareJamOpen: state.isShareJamOpen,
+    togglePresetManager: state.togglePresetManager,
+    toggleExportModal: state.toggleExportModal,
+    toggleStore: state.toggleStore,
+    toggleSettingsModal: state.toggleSettingsModal,
+    toggleManual: state.toggleManual,
+    toggleLicenseModal: state.toggleLicenseModal,
+    toggleShareJamModal: state.toggleShareJamModal,
+}), shallow);
+
+const useAppSetup = () => useStore(state => ({
+    init: state.init,
+    startAudio: state.startAudio,
+    isAudioReady: state.isAudioReady,
+    showWelcomeScreen: state.showWelcomeScreen,
+    hideWelcomeScreen: state.hideWelcomeScreen,
+    showQuickStart: state.showQuickStart,
+    toggleQuickStart: state.toggleQuickStart,
+    showFullscreenPrompt: state.showFullscreenPrompt,
+    setMidiOutputs: state.setMidiOutputs,
+    setAudioOutputDevices: state.setAudioOutputDevices,
+    audioEngineInstanceId: state.audioEngineInstanceId,
+}), shallow);
+
+const useThemeManager = () => useStore(state => ({
+    appearanceTheme: state.appearanceTheme,
+    setAppearanceTheme: state.setAppearanceTheme,
+    accentTheme: state.accentTheme,
+    setAccentTheme: state.setAccentTheme,
+}), shallow);
+
+const useGlobalShortcuts = () => {
+    const { selectedPLockStep, copyStep, pasteStep, copyPattern, pastePattern, togglePlay } = useStore(state => ({
         selectedPLockStep: state.selectedPLockStep,
         copyStep: state.copyStep,
         pasteStep: state.pasteStep,
@@ -253,12 +250,68 @@ const AppContent: React.FC = () => {
         pastePattern: state.pastePattern,
         togglePlay: state.togglePlay,
     }), shallow);
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable) return;
+            if (e.code === 'Space') { e.preventDefault(); togglePlay(); return; }
+            if (e.ctrlKey || e.metaKey) {
+                if (e.shiftKey && !selectedPLockStep) {
+                    if (e.key.toLowerCase() === 'c') { e.preventDefault(); copyPattern(); } 
+                    else if (e.key.toLowerCase() === 'v') { e.preventDefault(); pastePattern(); }
+                } else if (selectedPLockStep) {
+                    if (e.key.toLowerCase() === 'c') { e.preventDefault(); copyStep(selectedPLockStep.trackId, selectedPLockStep.stepIndex); } 
+                    else if (e.key.toLowerCase() === 'v') { e.preventDefault(); pasteStep(selectedPLockStep.trackId, selectedPLockStep.stepIndex); }
+                }
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [selectedPLockStep, copyStep, pasteStep, copyPattern, pastePattern, togglePlay]);
+};
+
+const useUiPerformance = () => {
+    const uiPerformanceMode = useStore(state => state.uiPerformanceMode);
+    useEffect(() => {
+        document.body.classList.remove('perf-mode-performance', 'perf-mode-off');
+        if (uiPerformanceMode === 'performance') {
+            document.body.classList.add('perf-mode-performance');
+        } else if (uiPerformanceMode === 'off') {
+            document.body.classList.add('perf-mode-off');
+        }
+    }, [uiPerformanceMode]);
+};
+
+
+const AppContent: React.FC = () => {
+    const { 
+        isPresetManagerOpen, isExportModalOpen, isStoreOpen, isSettingsModalOpen, isManualOpen, isLicenseModalOpen, isShareJamOpen,
+        togglePresetManager, toggleExportModal, toggleStore, toggleSettingsModal, toggleManual, toggleLicenseModal, toggleShareJamModal,
+    } = useModalManager();
+
+    const {
+        init, startAudio, isAudioReady, showWelcomeScreen, hideWelcomeScreen, showQuickStart, toggleQuickStart, showFullscreenPrompt,
+        setMidiOutputs, setAudioOutputDevices, audioEngineInstanceId
+    } = useAppSetup();
+
+    const { appearanceTheme, setAppearanceTheme, accentTheme, setAccentTheme } = useThemeManager();
+    
+    const { mainView, isExporting, exportProgress, exportProgressValue, isViewerMode } = useStore(state => ({
+        mainView: state.mainView,
+        isExporting: state.isExporting,
+        exportProgress: state.exportProgress,
+        exportProgressValue: state.exportProgressValue,
+        isViewerMode: state.isViewerMode,
+    }), shallow);
+    
+    useGlobalShortcuts();
+    useUiPerformance();
     
     const midiContext = React.useContext(MidiContext);
 
     useEffect(() => { init(); }, [init]);
 
-    // Combined handler for starting the app
     const handleStart = useCallback((dontShowAgain: boolean) => {
         hideWelcomeScreen(dontShowAgain);
         startAudio();
@@ -290,48 +343,6 @@ const AppContent: React.FC = () => {
     }, [midiContext?.outputs, setMidiOutputs, audioEngineInstanceId]);
 
     useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            const target = e.target as HTMLElement;
-            if (
-                target.tagName === 'INPUT' ||
-                target.tagName === 'TEXTAREA' ||
-                target.tagName === 'SELECT' ||
-                target.isContentEditable
-            ) {
-                return;
-            }
-
-            if (e.code === 'Space') {
-                e.preventDefault();
-                togglePlay();
-                return;
-            }
-
-            if (e.ctrlKey || e.metaKey) {
-                if (e.shiftKey && !selectedPLockStep) { // Pattern copy/paste
-                    if (e.key.toLowerCase() === 'c') {
-                        e.preventDefault();
-                        copyPattern();
-                    } else if (e.key.toLowerCase() === 'v') {
-                        e.preventDefault();
-                        pastePattern();
-                    }
-                } else if (selectedPLockStep) { // Step copy/paste
-                    if (e.key.toLowerCase() === 'c') {
-                        e.preventDefault();
-                        copyStep(selectedPLockStep.trackId, selectedPLockStep.stepIndex);
-                    } else if (e.key.toLowerCase() === 'v') {
-                        e.preventDefault();
-                        pasteStep(selectedPLockStep.trackId, selectedPLockStep.stepIndex);
-                    }
-                }
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [selectedPLockStep, copyStep, pasteStep, copyPattern, pastePattern, togglePlay]);
-
-    useEffect(() => {
         applyTheme(appearanceTheme as any);
     }, [appearanceTheme]);
 
@@ -353,7 +364,7 @@ const AppContent: React.FC = () => {
                 className="fixed inset-0 bg-black/90 z-[200] flex items-center justify-center cursor-pointer text-white font-mono"
                 onClick={startAudio}
             >
-                <div className="text-center p-8 rounded-lg border-2 border-dashed border-[var(--accent-color)]" style={{ animation: 'pulse-glow 2s infinite ease-in-out' }}>
+                <div className="text-center p-8 rounded-lg border-2 border-dashed border-[var(--accent-color)] animate-pulse-glow">
                     <h2 className="text-2xl font-bold mb-2">CLICK TO START AUDIO ENGINE</h2>
                     <p className="text-neutral-400 font-sans">Browser requires user interaction to enable sound.</p>
                 </div>

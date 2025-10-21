@@ -360,6 +360,39 @@
         }
       }
 
+      /* --- UI PERFORMANCE MODES --- */
+      body.perf-mode-performance .animate-pulse-glow,
+      body.perf-mode-performance .animate-master-pulse::after,
+      body.perf-mode-performance .animate-play-pulse,
+      body.perf-mode-performance .animate-start-button-throb,
+      body.perf-mode-performance .logo-breathe,
+      body.perf-mode-performance .modal-glow {
+          animation: none;
+      }
+      body.perf-mode-performance .selected-track-glow {
+          box-shadow: 0 0 0 2px var(--accent-color); /* Replace glow with a solid ring */
+      }
+      
+      body.perf-mode-off .animate-pulse-glow,
+      body.perf-mode-off .animate-master-pulse::after,
+      body.perf-mode-off .animate-play-pulse,
+      body.perf-mode-off .animate-start-button-throb,
+      body.perf-mode-off .logo-breathe,
+      body.perf-mode-off .modal-glow,
+      body.perf-mode-off .playhead-indicator,
+      body.perf-mode-off .animate-heartbeat {
+          animation: none !important;
+      }
+      body.perf-mode-off .animate-master-pulse::after,
+      body.perf-mode-off .animate-play-pulse::before,
+      body.perf-mode-off .animate-pulse-glow::before {
+          content: none !important;
+      }
+      body.perf-mode-off .selected-track-glow {
+          box-shadow: none !important;
+          border-color: var(--accent-color);
+      }
+
 
       /* Responsive Adjustments */
       @media (max-width: 1279px) { /* large tablets */

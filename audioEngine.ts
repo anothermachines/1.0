@@ -2,7 +2,7 @@ import {
     Track, StepState, PLocks, GlobalFXParams, CompressorParams, FXSends, Envelope, TrackType, MidiOutParams, LFOParams
 } from './types';
 // FIX: Import 'noteToFreq' and 'deepClone' to resolve 'Cannot find name' errors and implement the crucial fix.
-import { getAutomationValue, noteToFreq, deepClone } from './utils';
+import { getAutomationValue, noteToFreq, deepClone } from '../utils';
 
 // Helper to ensure values are finite numbers
 const finite = (value: any, fallback: number): number => {

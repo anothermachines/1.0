@@ -475,11 +475,13 @@ async function renderAudioOffline(
     const totalDuration = endTime - startTime;
     const secondsPerStep = (60.0 / preset.bpm) / 4.0;
     const secondsPerBeat = secondsPerStep * 4;
+    const RENDER_TAIL_SECONDS = 4; // Add 4 seconds for reverb/delay tails
 
     onProgress('Initializing offline render...', 0.05);
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    const offlineCtx = new OfflineAudioContext(2, Math.ceil(totalDuration * sampleRate), sampleRate);
+    const contextDuration = totalDuration + RENDER_TAIL_SECONDS;
+    const offlineCtx = new OfflineAudioContext(2, Math.ceil(contextDuration * sampleRate), sampleRate);
     const engine = new AudioEngine(offlineCtx);
     await engine.init();
 
