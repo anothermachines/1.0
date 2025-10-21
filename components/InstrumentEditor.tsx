@@ -30,13 +30,9 @@ const EditorHeader: React.FC<{
     trackId: number;
 }> = ({ trackName, trackId }) => {
     const { 
-        automationRecording, startAutomationRecording, stopAutomationRecording, 
-        clearAutomation, renameTrack, isViewerMode 
+        addNotification, renameTrack, isViewerMode 
     } = useStore(state => ({
-        automationRecording: state.automationRecording,
-        startAutomationRecording: state.startAutomationRecording,
-        stopAutomationRecording: state.stopAutomationRecording,
-        clearAutomation: state.clearAutomation,
+        addNotification: state.addNotification,
         renameTrack: state.renameTrack,
         isViewerMode: state.isViewerMode,
     }), shallow);
@@ -64,14 +60,8 @@ const EditorHeader: React.FC<{
         }
     };
 
-    const isRecording = automationRecording?.trackId === trackId;
-
     const handleRecClick = () => {
-        if (isRecording) {
-            stopAutomationRecording();
-        } else {
-            startAutomationRecording(trackId);
-        }
+        addNotification({ type: 'info', message: 'Automation recording coming soon!' });
     };
     
     return (
@@ -95,13 +85,9 @@ const EditorHeader: React.FC<{
             <div className="relative">
                 <button
                     onClick={handleRecClick}
-                    className={`px-3 py-1 text-xs font-bold rounded-sm border transition-all text-white w-32 ${
-                        isRecording 
-                        ? 'bg-red-600 border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.7)] animate-pulse' 
-                        : 'bg-neutral-600 hover:bg-neutral-500 border-neutral-500'
-                    }`}
+                    className={`px-3 py-1 text-xs font-bold rounded-sm border transition-all text-white w-32 bg-neutral-600 hover:bg-neutral-500 border-neutral-500`}
                 >
-                    {isRecording ? 'RECORDING' : 'REC AUTOM'}
+                    REC AUTOM
                 </button>
             </div>
         </div>

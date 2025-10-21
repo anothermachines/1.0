@@ -202,39 +202,6 @@ function mainLoop() {
     let currentPlayheadTime = playStartOffset + (audioCtxTime - playStartTime);
     useStore.setState({ currentPlayheadTime });
 
-    // --- NEW: Automation Playback Logic ---
-    const { preset, mainView } = useStore.getState();
-    const secondsPerBeat = 60 / preset.bpm;
-    let automationTimeInBeats = currentPlayheadTime / secondsPerBeat;
-
-    if (mainView === 'pattern') {
-        const patternDurationInBeats = 64 / 4; // 16 beats for 64 steps
-        automationTimeInBeats = automationTimeInBeats % patternDurationInBeats;
-    }
-    
-    preset.tracks.forEach(track => {
-        if (track.automation && track.type !== 'midi') { // No audio automation for MIDI tracks
-            // Volume
-            const volValue = getAutomationValue(track.automation, 'volume', automationTimeInBeats);
-            if (volValue !== undefined) {
-                audioEngine.updateTrackVolume(track.id, volValue);
-            }
-            // Pan
-            const panValue = getAutomationValue(track.automation, 'pan', automationTimeInBeats);
-            if (panValue !== undefined) {
-                audioEngine.updateTrackPan(track.id, panValue);
-            }
-            // FX Sends
-            for (const fx of ['reverb', 'delay', 'drive', 'sidechain'] as const) {
-                const sendValue = getAutomationValue(track.automation, `fxSends.${fx}`, automationTimeInBeats);
-                if (sendValue !== undefined) {
-                    audioEngine.updateTrackFxSend(track.id, fx, sendValue);
-                }
-            }
-        }
-    });
-    // --- END of Automation Playback Logic ---
-
     scheduler();
 }
 
@@ -268,8 +235,6 @@ interface AppState {
     soloedTrackId: number | null;
     isPLockModeActive: boolean;
     selectedPLockStep: { trackId: number; stepIndex: number; } | null;
-    automationRecording: { trackId: number; } | null;
-    overwriteTouchedParams: Set<string>;
     centerView: CenterView;
     mainView: MainView;
     sequencerPage: number;
@@ -352,9 +317,6 @@ interface AppActions {
     auditionNote: (note: string, velocity?: number) => void;
     setPatternLength: (trackId: number, length: number) => void;
     selectPattern: (trackId: number, patternIndex: number, currentPlayheadTime: number) => void;
-    startAutomationRecording: (trackId: number) => void;
-    stopAutomationRecording: () => void;
-    clearAutomation: (trackId: number) => void;
     randomizeTrackPattern: (trackId: number) => void;
     randomizeInstrument: (trackId: number) => void;
     randomizeAllPatternsForTrack: (trackId: number) => void;
@@ -447,8 +409,6 @@ const initialAppState: AppState = {
     soloedTrackId: null,
     isPLockModeActive: false,
     selectedPLockStep: null,
-    automationRecording: null,
-    overwriteTouchedParams: new Set(),
     centerView: 'mixer',
     mainView: 'pattern',
     sequencerPage: 0,
@@ -900,23 +860,6 @@ export const useStore = create<AppState & AppActions>()(
                     const track = state.preset.tracks.find(t => t.id === trackId);
                     if (track) {
                         setDeep(track.params, path, value);
-                        if (state.automationRecording?.trackId === trackId) {
-                            const fullPath = `params.${path}`;
-                            // If this is the first move for this param in this session, clear previous automation.
-                            if (!state.overwriteTouchedParams.has(fullPath)) {
-                                track.automation[fullPath] = [];
-                                state.overwriteTouchedParams.add(fullPath);
-                            }
-                            const { currentPlayheadTime, mainView, preset } = state;
-                            const secondsPerBeat = 60 / preset.bpm;
-                            let timeInBeats = currentPlayheadTime / secondsPerBeat;
-                            if (mainView === 'pattern') timeInBeats %= (64 / 4);
-                            // Ensure the array exists before pushing
-                            if (!track.automation[fullPath]) {
-                                track.automation[fullPath] = [];
-                            }
-                            track.automation[fullPath].push({ time: timeInBeats, value });
-                        }
                     }
                 });
             },
@@ -1004,19 +947,6 @@ export const useStore = create<AppState & AppActions>()(
                             step.pLocks.volume = volume;
                         } else {
                             track.volume = volume;
-                            if (state.automationRecording?.trackId === trackId) {
-                                const fullPath = 'volume';
-                                if (!state.overwriteTouchedParams.has(fullPath)) {
-                                    track.automation[fullPath] = [];
-                                    state.overwriteTouchedParams.add(fullPath);
-                                }
-                                const { currentPlayheadTime, mainView, preset } = state;
-                                const secondsPerBeat = 60 / preset.bpm;
-                                let timeInBeats = currentPlayheadTime / secondsPerBeat;
-                                if (mainView === 'pattern') timeInBeats %= (64 / 4);
-                                if (!track.automation[fullPath]) track.automation[fullPath] = [];
-                                track.automation[fullPath].push({ time: timeInBeats, value: volume });
-                            }
                         }
                     }
                 });
@@ -1032,19 +962,6 @@ export const useStore = create<AppState & AppActions>()(
                             step.pLocks.pan = pan;
                         } else {
                             track.pan = pan;
-                            if (state.automationRecording?.trackId === trackId) {
-                                const fullPath = 'pan';
-                                if (!state.overwriteTouchedParams.has(fullPath)) {
-                                    track.automation[fullPath] = [];
-                                    state.overwriteTouchedParams.add(fullPath);
-                                }
-                                const { currentPlayheadTime, mainView, preset } = state;
-                                const secondsPerBeat = 60 / preset.bpm;
-                                let timeInBeats = currentPlayheadTime / secondsPerBeat;
-                                if (mainView === 'pattern') timeInBeats %= (64 / 4);
-                                if (!track.automation[fullPath]) track.automation[fullPath] = [];
-                                track.automation[fullPath].push({ time: timeInBeats, value: pan });
-                            }
                         }
                     }
                 });
@@ -1061,19 +978,6 @@ export const useStore = create<AppState & AppActions>()(
                             step.pLocks.fxSends[fx] = value;
                         } else {
                             track.fxSends[fx] = value;
-                            if (state.automationRecording?.trackId === trackId) {
-                                const fullPath = `fxSends.${fx}`;
-                                if (!state.overwriteTouchedParams.has(fullPath)) {
-                                    track.automation[fullPath] = [];
-                                    state.overwriteTouchedParams.add(fullPath);
-                                }
-                                const { currentPlayheadTime, mainView, preset } = state;
-                                const secondsPerBeat = 60 / preset.bpm;
-                                let timeInBeats = currentPlayheadTime / secondsPerBeat;
-                                if (mainView === 'pattern') timeInBeats %= (64 / 4);
-                                if (!track.automation[fullPath]) track.automation[fullPath] = [];
-                                track.automation[fullPath].push({ time: timeInBeats, value });
-                            }
                         }
                     }
                 });
@@ -1130,35 +1034,6 @@ export const useStore = create<AppState & AppActions>()(
                         }
                     }
                 });
-            },
-             startAutomationRecording: (trackId) => {
-                const trackName = get().preset.tracks.find(t => t.id === trackId)?.name || 'Unknown Track';
-                set(state => {
-                    state.automationRecording = { trackId };
-                    state.overwriteTouchedParams.clear();
-                });
-                get().addNotification({ type: 'info', message: `Recording automation for ${trackName}` });
-            },
-            stopAutomationRecording: () => {
-                const automationRecording = get().automationRecording;
-                if (automationRecording) {
-                    const trackName = get().preset.tracks.find(t => t.id === automationRecording.trackId)?.name || 'Unknown Track';
-                    set({ automationRecording: null });
-                    get().addNotification({ type: 'success', message: `Stopped recording automation for ${trackName}` });
-                }
-            },
-            clearAutomation: (trackId) => {
-                let trackName: string | undefined;
-                set(state => {
-                    const track = state.preset.tracks.find(t => t.id === trackId);
-                    if (track) {
-                        trackName = track.name;
-                        track.automation = {};
-                    }
-                });
-                if (trackName) {
-                    get().addNotification({ type: 'success', message: `Cleared automation for ${trackName}` });
-                }
             },
             randomizeTrackPattern: (trackId) => {
                 set(state => {

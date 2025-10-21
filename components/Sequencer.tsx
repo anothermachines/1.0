@@ -235,7 +235,7 @@ const SequencerComponent: React.FC = () => {
     // This hook only gets actions, which are stable.
     const { 
         togglePLockMode, selectPattern, setPatternLength, setStepProperty, 
-        randomizeTrackPattern, startEuclideanMode, clearTrackPattern, clearAutomation, 
+        randomizeTrackPattern, startEuclideanMode, clearTrackPattern, 
         toggleCenterView, updateEuclidean, applyEuclidean, cancelEuclidean, setParam, 
         setTrackPan, setFxSend, copyPattern, pastePattern, triggerViewerModeInteraction, 
         setSequencerPage, currentPlayheadTime
@@ -247,7 +247,6 @@ const SequencerComponent: React.FC = () => {
         randomizeTrackPattern: state.randomizeTrackPattern,
         startEuclideanMode: state.startEuclideanMode,
         clearTrackPattern: state.clearTrackPattern,
-        clearAutomation: state.clearAutomation,
         toggleCenterView: state.toggleCenterView,
         updateEuclidean: state.updateEuclidean,
         applyEuclidean: state.applyEuclidean,
@@ -452,7 +451,7 @@ const SequencerComponent: React.FC = () => {
                 </div>
             </div>
             <div className="hidden sm:flex items-center space-x-1">
-                 <button onClick={() => clearAutomation(selectedTrackId)} className="h-6 px-2 text-[9px] font-bold rounded-sm bg-blue-800 hover:bg-blue-700 border border-blue-900 transition-colors text-white" title="Clear Automation for selected track">AUTOM</button>
+                 <button disabled className="h-6 px-2 text-[9px] font-bold rounded-sm bg-blue-800 border border-blue-900 text-white opacity-50 cursor-not-allowed" title="Automation coming soon">AUTOM</button>
                  <button onClick={() => clearTrackPattern(selectedTrackId)} className="h-6 px-2 text-[9px] font-bold rounded-sm bg-[var(--bg-control)] hover:bg-[var(--border-color)] border border-[var(--border-color)] transition-colors text-[var(--text-light)]" title="Clear Current Pattern">CLEAR</button>
             </div>
         </div>

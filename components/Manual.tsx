@@ -174,7 +174,7 @@ const Manual: React.FC = () => {
                             <p>The global effects on the right process the entire mix, adding space, texture, and punch.</p>
                             <ul className="list-disc list-inside space-y-2">
                                 <li><strong>Sends:</strong> Each track has sends for Reverb, Delay, and Drive.</li>
-                                <li><strong>Master Chain:</strong> The signal goes through a Master Filter, Character (saturation/distortion), a master Compressor, and finally a Limiter. Use these to glue your mix together.</li>
+                                <li><strong>Master Chain:</strong> The signal goes through a Master Filter, Character (Saturate, Overdrive, Bitcrush), a master Compressor, and finally a Limiter. Use these to glue your mix together.</li>
                             </ul>
                         </Section>
                         
@@ -211,11 +211,32 @@ const Manual: React.FC = () => {
                         </Section>
                         
                         <Section id="midi" title="MIDI">
-                            <p>Integrate FM8/R with your hardware setup.</p>
-                            <ul className="list-disc list-inside space-y-2">
-                                <li><strong>MIDI Learn:</strong> In the Settings modal, you can enable MIDI Learn mode to easily map knobs and buttons on your controller to almost any parameter in the app.</li>
-                                <li><strong>MIDI Sync:</strong> You can configure FM8/R to send or receive MIDI clock signals to synchronize its tempo with external drum machines, synthesizers, or your DAW.</li>
-                            </ul>
+                            <p>Integrate FM8/R with your hardware setup using its comprehensive MIDI features.</p>
+                            <div className="space-y-4">
+                                <div>
+                                    <h4 className="font-bold text-neutral-100">MIDI Out Track</h4>
+                                    <p className="text-xs text-neutral-400 pl-4 border-l-2 border-neutral-700 ml-2 mt-1">
+                                        Track 8 defaults to a special MIDI Out track, allowing you to sequence external hardware synthesizers, drum machines, or software instruments directly from FM8/R. Its editor is unique:
+                                    </p>
+                                    <ul className="list-disc list-inside ml-8 mt-2 text-xs text-neutral-400 space-y-1">
+                                        <li><strong>Device & Channel:</strong> Select your connected MIDI output device and the desired channel (1-16).</li>
+                                        <li><strong>Note Sequencing:</strong> Use the Sequencer or Piano Roll to write melodies and rhythms, just like any other track. The notes will be sent to your external gear.</li>
+                                        <li><strong>CC P-Locks:</strong> This is a powerful feature for automating external hardware. In P-Lock mode, select a step and go to the Instrument Editor for the MIDI track. You can add "CC Locks" to send specific MIDI Control Change messages on that step, allowing you to automate parameters like filter cutoff or resonance on your external synth.</li>
+                                    </ul>
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-neutral-100">MIDI Learn</h4>
+                                    <p className="text-xs text-neutral-400 pl-4 border-l-2 border-neutral-700 ml-2 mt-1">
+                                        In the Settings modal, you can enable MIDI Learn mode to easily map knobs and buttons on your controller to almost any parameter in the app. Click the "MIDI LEARN" button, click a parameter in the UI, and then move the control on your hardware.
+                                    </p>
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-neutral-100">MIDI Sync</h4>
+                                    <p className="text-xs text-neutral-400 pl-4 border-l-2 border-neutral-700 ml-2 mt-1">
+                                        You can configure FM8/R to send or receive MIDI clock signals to synchronize its tempo with external drum machines, synthesizers, or your DAW. Configure this in the Settings modal.
+                                    </p>
+                                </div>
+                            </div>
                         </Section>
 
                         <Section id="shortcuts" title="Shortcuts">
