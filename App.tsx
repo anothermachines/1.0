@@ -82,13 +82,16 @@ const FullscreenIcon: React.FC = () => {
     const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
 
     const toggleFullscreen = useCallback(() => {
+        const appRoot = document.getElementById('root');
         if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch(err => {
-                console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
-            });
+            if (appRoot) {
+                appRoot.requestFullscreen().catch(err => {
+                    console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+                });
+            }
         } else {
             if (document.exitFullscreen) {
-                document.exitFullscreen();
+                document.exitFullscreen().catch(err => console.error(`Error attempting to exit full-screen mode: ${err.message} (${err.name})`));
             }
         }
     }, []);

@@ -635,6 +635,29 @@ export class AudioEngine {
     
     playStep(track: Track, stepState: StepState, time: number, loopTime: number, loopCount: number) {
         if (!stepState || !stepState.active || !this.shouldTrigger(track.id, stepState, loopCount)) return;
+
+        const pLocks = stepState.pLocks;
+        if (pLocks?.fxSends && track.type !== 'midi') {
+            const sends = this.trackSendNodes.get(track.id);
+            if (sends) {
+                const durationInSteps = stepState.duration || 1;
+                const secondsPerStep = (60.0 / this.bpm) / 4.0;
+                const durationInSeconds = durationInSteps * secondsPerStep;
+                const returnTime = time + Math.max(0.01, durationInSeconds - 0.005);
+
+                for (const fx of Object.keys(pLocks.fxSends) as (keyof FXSends)[]) {
+                    const lockedValue = pLocks.fxSends[fx];
+                    if (lockedValue !== undefined) {
+                        const sendGainParam = sends[fx].gain;
+                        const globalValue = track.fxSends[fx];
+                        
+                        sendGainParam.cancelScheduledValues(time);
+                        sendGainParam.setTargetAtTime(lockedValue, time, 0.001);
+                        sendGainParam.setTargetAtTime(globalValue, returnTime, 0.001);
+                    }
+                }
+            }
+        }
         
         if (track.type === 'midi') {
             this.playMidiStep(track, stepState, time);

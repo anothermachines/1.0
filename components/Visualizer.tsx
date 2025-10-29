@@ -5,6 +5,7 @@ interface VisualizerProps {
     bpm: number;
     palette: string[];
     mode: string;
+    performance: 'high' | 'low';
 }
 
 interface Particle {
@@ -21,7 +22,7 @@ interface Particle {
 const logoOuterPath = new Path2D("M26 2L1 13.5V36.5L26 48L51 36.5V13.5L26 2Z");
 const logoInnerPath = new Path2D("M26 13L13 20V32L26 39L39 32V20L26 13Z");
 
-const Visualizer = React.forwardRef<HTMLCanvasElement, VisualizerProps>(({ analyserNode, bpm, palette, mode }, ref) => {
+const Visualizer = React.forwardRef<HTMLCanvasElement, VisualizerProps>(({ analyserNode, bpm, palette, mode, performance }, ref) => {
     const animationFrameId = useRef<number>();
     const lastBeatTime = useRef(0);
     const beatProgress = useRef(1);
@@ -89,7 +90,7 @@ const Visualizer = React.forwardRef<HTMLCanvasElement, VisualizerProps>(({ analy
         ctx.translate(-26, -25);
         
         ctx.shadowColor = palette[0];
-        ctx.shadowBlur = (1 - beatProgress.current) * 10; // Reduced blur for performance
+        ctx.shadowBlur = (1 - beatProgress.current) * (performance === 'high' ? 10 : 3);
 
         ctx.strokeStyle = palette[1] + 'CC';
         ctx.fillStyle = "#05020cCC";
@@ -123,7 +124,7 @@ const Visualizer = React.forwardRef<HTMLCanvasElement, VisualizerProps>(({ analy
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, width, height);
         
-        updateAndDrawParticles(ctx, deltaTime, bassLevel, centerX, centerY, palette[1]);
+        updateAndDrawParticles(ctx, deltaTime, bassLevel, centerX, centerY, palette[1], performance);
         galaxyRotation.current += deltaTime * 0.05 * (1 + midLevel);
 
         ctx.save();
@@ -156,7 +157,7 @@ const Visualizer = React.forwardRef<HTMLCanvasElement, VisualizerProps>(({ analy
         ctx.translate(-26, -25);
         
         ctx.shadowColor = palette[0];
-        ctx.shadowBlur = (1 - beatProgress.current) * 12; // Reduced blur for performance
+        ctx.shadowBlur = (1 - beatProgress.current) * (performance === 'high' ? 12 : 4);
 
         ctx.strokeStyle = palette[1] + 'FF';
         ctx.fillStyle = palette[0] + '88';
@@ -324,8 +325,11 @@ const Visualizer = React.forwardRef<HTMLCanvasElement, VisualizerProps>(({ analy
         const scale = Math.min(width, height) * 0.45;
         const offset = 8;
         
-        for (let i = 0; i < bufferLength; i += 4) {
-            if (vectorscopeParticlesRef.current.length > 500) break;
+        const maxParticles = performance === 'high' ? 500 : 150;
+        const step = performance === 'high' ? 4 : 8;
+
+        for (let i = 0; i < bufferLength; i += step) {
+            if (vectorscopeParticlesRef.current.length > maxParticles) break;
             const v_x = (data.timeData[i] - 128) / 128.0;
             const v_y = (data.timeData[(i + offset) % bufferLength] - 128) / 128.0;
     
@@ -340,7 +344,7 @@ const Visualizer = React.forwardRef<HTMLCanvasElement, VisualizerProps>(({ analy
     
         ctx.fillStyle = palette[1];
         ctx.shadowColor = palette[1];
-        ctx.shadowBlur = 5;
+        ctx.shadowBlur = performance === 'high' ? 5 : 2;
     
         for (let i = vectorscopeParticlesRef.current.length - 1; i >= 0; i--) {
             const p = vectorscopeParticlesRef.current[i];
@@ -379,7 +383,7 @@ const Visualizer = React.forwardRef<HTMLCanvasElement, VisualizerProps>(({ analy
             ctx.fillStyle = `rgba(255, 255, 255, ${Math.min(1, bassLevel * 1.2)})`;
             ctx.fillRect(0, 0, width, height);
     
-            const particleCount = 50;
+            const particleCount = performance === 'high' ? 50 : 10;
             for (let i = 0; i < particleCount; i++) {
                 const angle = Math.random() * Math.PI * 2;
                 const speed = Math.random() * 200 + 100 * bassLevel;
@@ -429,9 +433,10 @@ const Visualizer = React.forwardRef<HTMLCanvasElement, VisualizerProps>(({ analy
     };
 
 
-    const updateAndDrawParticles = (ctx: CanvasRenderingContext2D, deltaTime: number, bassLevel: number, cx: number, cy: number, color: string) => {
-        if (bassLevel > 0.6 && Math.random() > 0.75) { // Reduced particle generation rate
-            for (let i = 0; i < Math.floor(bassLevel * 1); i++) { // Reduced particle count
+    const updateAndDrawParticles = (ctx: CanvasRenderingContext2D, deltaTime: number, bassLevel: number, cx: number, cy: number, color: string, performance: 'high' | 'low') => {
+        const particleMultiplier = performance === 'high' ? 1 : 0.2;
+        if (bassLevel > 0.6 && Math.random() > (performance === 'high' ? 0.75 : 0.9)) {
+            for (let i = 0; i < Math.floor(bassLevel * 1 * particleMultiplier); i++) {
                 const angle = Math.random() * Math.PI * 2;
                 const speed = Math.random() * 50 + 50 * bassLevel;
                 particlesRef.current.push({
@@ -546,7 +551,7 @@ const Visualizer = React.forwardRef<HTMLCanvasElement, VisualizerProps>(({ analy
                 cancelAnimationFrame(animationFrameId.current);
             }
         };
-    }, [analyserNode, bpm, ref, palette, mode]);
+    }, [analyserNode, bpm, ref, palette, mode, performance]);
 
     return <canvas ref={ref} width="1280" height="720" style={{ width: '100%', height: '100%' }} />;
 });

@@ -25,12 +25,13 @@ const VISUALIZER_MODE_NAMES: Record<string, string> = {
 
 const ShareJamModal: React.FC = () => {
     const { 
-        preset, mainView, arrangementLoop, 
+        preset, mainView, arrangementLoop, uiPerformanceMode,
         toggleShareJamModal, generateShareableLink, addNotification, renderJamVideoAudio 
     } = useStore(state => ({
         preset: state.preset,
         mainView: state.mainView,
         arrangementLoop: state.arrangementLoop,
+        uiPerformanceMode: state.uiPerformanceMode,
         toggleShareJamModal: state.toggleShareJamModal,
         generateShareableLink: state.generateShareableLink,
         addNotification: state.addNotification,
@@ -55,7 +56,9 @@ const ShareJamModal: React.FC = () => {
     const livePreviewSourceRef = useRef<GainNode | null>(null);
     
     const [palette, setPalette] = useState(COLOR_PALETTES[0]);
-    const [mode, setMode] = useState(VISUALIZER_MODES[0]);
+    
+    const isLowPerf = uiPerformanceMode !== 'high';
+    const [mode, setMode] = useState(isLowPerf ? VISUALIZER_MODES[2] : VISUALIZER_MODES[0]); // Default to 'spectrum' on low perf
 
     useEffect(() => {
         const audioCtx = useStore.getState().audioEngine?.getContext();
@@ -254,6 +257,7 @@ const ShareJamModal: React.FC = () => {
                                     bpm={preset.bpm}
                                     palette={palette}
                                     mode={mode}
+                                    performance={isLowPerf ? 'low' : 'high'}
                                 />
                                 <div className="absolute bottom-3 left-4 text-white font-mono text-lg pointer-events-none" style={{ textShadow: '0 0 8px rgba(0,0,0,0.8)' }}>
                                     {preset.name}

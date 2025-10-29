@@ -311,6 +311,7 @@ interface AppActions {
     setTrackVolume: (trackId: number, volume: number) => void;
     setTrackPan: (trackId: number, pan: number) => void;
     setFxSend: (trackId: number, fx: keyof FXSends, value: any) => void;
+    setFxSendPLock: (fx: keyof FXSends, value: any) => void;
     setGlobalFxParam: (fx: keyof GlobalFXParams, param: string, value: any) => void;
     setMasterVolume: (volume: number) => void;
     setStepProperty: (trackId: number, stepIndex: number, prop: keyof StepState, value: any) => void;
@@ -612,6 +613,7 @@ export const useStore = create<AppState & AppActions>()(
             ...initialAppState,
             init: () => {
                  try {
+                    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
                     const savedState = localStorage.getItem('fm8r-state');
                     if (savedState) {
                         const parsed = JSON.parse(savedState);
@@ -629,7 +631,7 @@ export const useStore = create<AppState & AppActions>()(
                             state.customStoreUrl = parsed.customStoreUrl || '';
                             state.appearanceTheme = parsed.appearanceTheme || 'studio-dark';
                             state.accentTheme = parsed.accentTheme || 'studio-amber';
-                            state.uiPerformanceMode = parsed.uiPerformanceMode || 'high';
+                            state.uiPerformanceMode = parsed.uiPerformanceMode || (isTouchDevice ? 'performance' : 'high');
                             state.latencySetting = parsed.latencySetting || 'interactive';
                             state.midiSyncSource = parsed.midiSyncSource || 'internal';
                             state.midiSyncOutput = parsed.midiSyncOutput || 'none';
@@ -638,6 +640,9 @@ export const useStore = create<AppState & AppActions>()(
                         set(state => {
                             state.presets = INITIAL_PRESET_LIBRARY;
                             state.instrumentPresets = INITIAL_INSTRUMENT_PRESET_LIBRARY;
+                            if (isTouchDevice) {
+                                state.uiPerformanceMode = 'performance';
+                            }
                         });
                     }
                     
@@ -972,17 +977,23 @@ export const useStore = create<AppState & AppActions>()(
                 set(state => {
                     const track = state.preset.tracks.find(t => t.id === trackId);
                     if (track) {
-                        const { selectedPLockStep } = state;
-                        if (selectedPLockStep?.trackId === trackId) {
-                            const step = track.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                        track.fxSends[fx] = value;
+                    }
+                });
+            },
+            setFxSendPLock: (fx, value) => {
+                const { selectedPLockStep } = get();
+                 if (selectedPLockStep) {
+                    set(state => {
+                        const track = state.preset.tracks.find(t => t.id === selectedPLockStep.trackId);
+                        const step = track?.patterns[track.activePatternIndex][selectedPLockStep.stepIndex];
+                        if (step) {
                             if (!step.pLocks) step.pLocks = {};
                             if (!step.pLocks.fxSends) step.pLocks.fxSends = {};
                             step.pLocks.fxSends[fx] = value;
-                        } else {
-                            track.fxSends[fx] = value;
                         }
-                    }
-                });
+                    });
+                }
             },
             setGlobalFxParam: (fx, param, value) => {
                 set(state => {
@@ -1002,7 +1013,14 @@ export const useStore = create<AppState & AppActions>()(
                     const track = state.preset.tracks.find(t => t.id === trackId);
                     if (track) {
                         const step = track.patterns[track.activePatternIndex][stepIndex];
-                        if(step) (step as any)[prop] = value;
+                        if(step) {
+                            (step as any)[prop] = value;
+                             if (prop === 'notes' && Array.isArray(value) && value.length === 0) {
+                                if (step.pLocks) {
+                                    step.pLocks.fxSends = {};
+                                }
+                            }
+                        }
                     }
                 });
             },

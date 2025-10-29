@@ -366,11 +366,18 @@
       body.perf-mode-performance .animate-play-pulse,
       body.perf-mode-performance .animate-start-button-throb,
       body.perf-mode-performance .logo-breathe,
-      body.perf-mode-performance .modal-glow {
+      body.perf-mode-performance .modal-glow,
+      body.perf-mode-performance .animate-heartbeat {
           animation: none;
       }
       body.perf-mode-performance .selected-track-glow {
           box-shadow: 0 0 0 2px var(--accent-color); /* Replace glow with a solid ring */
+      }
+      body.perf-mode-performance .knob-container.interacting::after {
+          opacity: 0;
+      }
+      body.perf-mode-performance .knob-container::after {
+          transition: none;
       }
       
       body.perf-mode-off .animate-pulse-glow,

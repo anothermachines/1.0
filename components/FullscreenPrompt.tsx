@@ -10,8 +10,9 @@ const FullscreenPrompt: React.FC = () => {
     }, [toggleFullscreenPrompt]);
 
     const enterFullscreen = useCallback(() => {
-        if (document.documentElement.requestFullscreen) {
-            document.documentElement.requestFullscreen().catch(err => {
+        const appRoot = document.getElementById('root');
+        if (appRoot && appRoot.requestFullscreen) {
+            appRoot.requestFullscreen().catch(err => {
                 console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
             });
         }
