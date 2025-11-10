@@ -350,63 +350,162 @@ const SCALES = {
 };
 
 export const createTechnoPattern = (type: TrackType, defaultNote: string): { pattern: StepState[], length: number } => {
-    const isHypnotic = Math.random() > 0.6;
-    let length = choose([16, 32]);
+    // Increase probability of hypnotic, non-standard lengths for most tracks
+    const isHypnotic = Math.random() > 0.4;
+    let length = choose([16, 32, 16, 16]); // Bias towards 16
     if (isHypnotic && type !== 'kick') {
-        length = choose([7, 11, 13, 15]);
+        length = choose([7, 11, 13, 15, 16, 32]); // Still allow standard lengths
     }
 
     const pattern: StepState[] = Array(64).fill(null).map(() => ({ active: false, pLocks: null, notes: [], velocity: 1.0, duration: 1, condition: { type: 'always' } }));
 
     if (type === 'kick') {
         length = 16;
-        for (let i = 0; i < 16; i += 4) { // Four-on-the-floor
-            pattern[i].active = true;
-            pattern[i].velocity = rand(0.9, 1.0); // Accented
-        }
-        if (Math.random() > 0.4) { // Add an off-beat kick
-            const offBeat = choose([6, 7, 13, 14]);
-            pattern[offBeat].active = true;
-            pattern[offBeat].velocity = rand(0.6, 0.8);
-        }
-    } else if (type === 'hat') {
-        if (Math.random() > 0.5) { // Off-beat pattern
-            for (let i = 2; i < length; i += 4) {
-                pattern[i].active = true;
-                pattern[i].velocity = rand(0.5, 0.8);
-            }
-        } else { // 16th note pattern
-            for (let i = 0; i < length; i++) {
-                if (Math.random() > 0.3) {
+        const kickPatternType = choose(['four_on_the_floor', 'driving', 'syncopated']);
+        switch(kickPatternType) {
+            case 'driving':
+                // Classic driving techno, often with a skip
+                [4, 8, 12].forEach(i => { pattern[i].active = true; pattern[i].velocity = rand(0.95, 1.0); });
+                if (Math.random() > 0.5) { pattern[0].active = true; pattern[0].velocity = rand(0.9, 1.0); } // Sometimes add the first kick back
+                if (Math.random() > 0.6) { const offBeat = choose([6, 14]); pattern[offBeat].active = true; pattern[offBeat].velocity = rand(0.7, 0.85); }
+                break;
+            case 'syncopated':
+                // More broken/syncopated feel
+                [0, 5, 8, 11].forEach(i => { pattern[i].active = true; pattern[i].velocity = rand(0.9, 1.0); });
+                if (Math.random() > 0.5) { pattern[14].active = true; pattern[14].velocity = rand(0.7, 0.8); }
+                break;
+            default: // four_on_the_floor
+                for (let i = 0; i < 16; i += 4) {
                     pattern[i].active = true;
-                    pattern[i].velocity = i % 4 === 0 ? rand(0.3, 0.5) : rand(0.6, 0.9); // Accents
+                    pattern[i].velocity = rand(0.9, 1.0);
+                }
+                 if (Math.random() > 0.3) {
+                    const offBeat = choose([6, 7, 13, 14]);
+                    pattern[offBeat].active = true;
+                    pattern[offBeat].velocity = rand(0.6, 0.8);
+                }
+                break;
+        }
+
+    } else if (type === 'hat') {
+        const hatPatternType = choose(['offbeat', 'sixteenths', 'shaker', 'sparse']);
+        switch(hatPatternType) {
+            case 'sixteenths':
+                 for (let i = 0; i < length; i++) {
+                    if (Math.random() > 0.2) { // Denser
+                        pattern[i].active = true;
+                        // Groove template: Strong, weak, medium, weak
+                        const posInBeat = i % 4;
+                        if (posInBeat === 0) pattern[i].velocity = rand(0.5, 0.7);
+                        else if (posInBeat === 2) pattern[i].velocity = rand(0.7, 0.9);
+                        else pattern[i].velocity = rand(0.4, 0.6);
+                    }
+                }
+                break;
+            case 'shaker':
+                 for (let i = 0; i < length; i++) {
+                     pattern[i].active = true;
+                     pattern[i].velocity = rand(0.4, 0.8);
+                 }
+                 break;
+            case 'sparse':
+                const pulses = choose([2,3,4]);
+                const rhythm = generateEuclideanPattern(pulses, length);
+                 for (let i = 0; i < length; i++) {
+                    if (rhythm[i]) {
+                        pattern[i].active = true;
+                        pattern[i].velocity = rand(0.7, 0.9);
+                    }
+                }
+                break;
+            default: // offbeat
+                for (let i = 2; i < length; i += 4) {
+                    pattern[i].active = true;
+                    pattern[i].velocity = rand(0.6, 0.8);
+                }
+                break;
+        }
+
+    } else { // Melodic & Percussive Synths
+        if (type === 'arcane') {
+            // Bassline-specific logic
+            const rootMidi = noteNameToMidi(defaultNote) % 12;
+            const octave = Math.floor(noteNameToMidi(defaultNote) / 12) - 1;
+            const scale = SCALES.minor;
+            
+            const pulses = randInt(Math.max(3, Math.floor(length / 5)), Math.floor(length / 2.5));
+            const rotation = randInt(0, length - 1);
+            const sequence = generateEuclideanPattern(pulses, length);
+            const rhythm = [...sequence.slice(-rotation), ...sequence.slice(0, -rotation)];
+
+            const melodyMidi: number[] = [];
+            let currentNoteIndex = randInt(0, 2); // Start low in the scale
+            for(let i=0; i<pulses; i++){
+                const noteOctave = choose([octave - 1, octave - 1, octave - 2]); // Lower octaves for bass
+                melodyMidi.push( (noteOctave + 1) * 12 + rootMidi + scale[currentNoteIndex]);
+                // Tighter random walk
+                currentNoteIndex += choose([-1, 0, 0, 1]);
+                currentNoteIndex = Math.max(0, Math.min(scale.length - 1, currentNoteIndex));
+            }
+            
+            let melodyIdx = 0;
+            for (let i = 0; i < length; i++) {
+                if (rhythm[i]) {
+                    pattern[i].active = true;
+                    pattern[i].notes = [midiToNoteName(melodyMidi[melodyIdx % melodyMidi.length])];
+                    pattern[i].velocity = rand(0.7, 1.0);
+                    
+                    // Add some intelligent p-locks for variation
+                    if (Math.random() > 0.8) { // 20% chance for a filter mod
+                        if (!pattern[i].pLocks) pattern[i].pLocks = {};
+                        if (!pattern[i].pLocks!.arcaneParams) pattern[i].pLocks!.arcaneParams = {};
+                        pattern[i].pLocks!.arcaneParams!.filter = { cutoff: rand(400, 2500) } as any;
+                    }
+
+                    if (Math.random() > 0.7) { // 30% chance for a shorter decay
+                        if (!pattern[i].pLocks) pattern[i].pLocks = {};
+                        if (!pattern[i].pLocks!.arcaneParams) pattern[i].pLocks!.arcaneParams = {};
+                        pattern[i].pLocks!.arcaneParams!.ampEnv = { decay: rand(0.08, 0.2) } as any;
+                    }
+                    
+                    melodyIdx++;
                 }
             }
-        }
-    } else { // Melodic tracks
-        const rootMidi = noteNameToMidi(defaultNote) % 12;
-        const octave = Math.floor(noteNameToMidi(defaultNote) / 12) -1;
-        const scale = SCALES[choose(Object.keys(SCALES))];
-        
-        const pulses = randInt(Math.floor(length / 4), Math.floor(length / 2));
-        const rhythm = generateEuclideanPattern(pulses, length);
+        } else {
+            // Original logic for other synths
+            const rootMidi = noteNameToMidi(defaultNote) % 12;
+            const octave = Math.floor(noteNameToMidi(defaultNote) / 12) - 1;
+            const scale = SCALES.minor; // Stick to minor for darker feel
+            
+            const pulses = randInt(Math.max(1, Math.floor(length / 8)), Math.floor(length / 3));
+            const rotation = randInt(0, length - 1);
+            const sequence = generateEuclideanPattern(pulses, length);
+            const rhythm = [...sequence.slice(-rotation), ...sequence.slice(0, -rotation)];
 
-        // Simple melody generation (random walk)
-        const melodyMidi: number[] = [];
-        let currentNoteIndex = randInt(0, scale.length - 1);
-        for(let i=0; i<pulses; i++){
-            melodyMidi.push( (octave + 1) * 12 + rootMidi + scale[currentNoteIndex]);
-            currentNoteIndex += choose([-2, -1, -1, 1, 1, 2]);
-            currentNoteIndex = Math.max(0, Math.min(scale.length-1, currentNoteIndex));
-        }
-        
-        let melodyIdx = 0;
-        for (let i = 0; i < length; i++) {
-            if (rhythm[i]) {
-                pattern[i].active = true;
-                pattern[i].notes = [midiToNoteName(melodyMidi[melodyIdx % melodyMidi.length])];
-                pattern[i].velocity = rand(0.5, 1.0);
-                melodyIdx++;
+            const melodyMidi: number[] = [];
+            let currentNoteIndex = randInt(0, 3); // Start low in the scale
+            for(let i=0; i<pulses; i++){
+                const noteOctave = choose([octave, octave, octave, octave+1]);
+                melodyMidi.push( (noteOctave + 1) * 12 + rootMidi + scale[currentNoteIndex]);
+                // Biased random walk: more likely to stay same or move by one step
+                currentNoteIndex += choose([-1, -1, 0, 0, 0, 0, 1, 1, 2]);
+                currentNoteIndex = Math.max(0, Math.min(scale.length - 1, currentNoteIndex));
+            }
+            
+            let melodyIdx = 0;
+            for (let i = 0; i < length; i++) {
+                if (rhythm[i]) {
+                    pattern[i].active = true;
+                    pattern[i].notes = [midiToNoteName(melodyMidi[melodyIdx % melodyMidi.length])];
+                    pattern[i].velocity = rand(0.6, 1.0);
+                    if (Math.random() > 0.8) {
+                        pattern[i].duration = choose([2, 3]);
+                    }
+                    if (Math.random() > 0.9) {
+                         pattern[i].condition = { type: 'probability', p: 50 };
+                    }
+                    melodyIdx++;
+                }
             }
         }
     }
@@ -438,13 +537,32 @@ export const randomizeHatParams = (): Partial<HatParams> => {
 };
 
 export const randomizeArcaneParams = (): Partial<ArcaneParams> => {
-    const archetypes = ['stab', 'bell', 'drone'];
+    const archetypes = ['deep_pm_bass', 'sync_bass', 'simple_sub'];
     const choice = choose(archetypes);
     switch(choice) {
-        case 'bell': return { osc2_pitch: choose([12, 19, 24]), mode: 'ring', mod_amount: rand(70, 100), fold: 0, ampEnv: { attack: 0.001, decay: rand(0.3, 0.8), sustain: 0, release: rand(0.2, 0.5) } };
-        case 'drone': return { osc2_pitch: choose([0, 7]), mode: 'pm', mod_amount: rand(10, 40), fold: rand(0, 30), spread: rand(20, 80), ampEnv: { attack: rand(0.5, 2.0), decay: rand(1.0, 3.0), sustain: 1.0, release: rand(1.0, 3.0) } };
-        default: // stab
-            return { osc2_pitch: choose([-12, 7, 12]), mode: 'pm', mod_amount: rand(30, 70), fold: rand(10, 50), ampEnv: { attack: 0.001, decay: rand(0.15, 0.4), sustain: 0, release: rand(0.1, 0.3) } };
+        case 'sync_bass': return { 
+            mode: 'hard_sync',
+            osc2_pitch: choose([7, 12, 19]),
+            mod_amount: rand(15, 40),
+            fold: rand(0, 20),
+            ampEnv: { attack: 0.001, decay: rand(0.2, 0.35), sustain: 0, release: rand(0.1, 0.2) }
+        };
+        case 'simple_sub': return {
+            mode: 'add',
+            osc2_pitch: choose([-12, 0]),
+            osc2_fine: rand(-10, 10),
+            mod_amount: 0,
+            fold: 0,
+            ampEnv: { attack: 0.002, decay: rand(0.5, 0.9), sustain: 0, release: rand(0.3, 0.5) }
+        };
+        default: // deep_pm_bass
+            return { 
+                mode: 'pm',
+                osc2_pitch: choose([0, 12]),
+                mod_amount: rand(20, 50),
+                fold: rand(0, 15),
+                ampEnv: { attack: 0.001, decay: rand(0.25, 0.45), sustain: 0, release: rand(0.15, 0.25) }
+            };
     }
 };
 
@@ -484,11 +602,12 @@ export const randomizeShiftParams = (): Partial<ShiftParams> => ({
 export const randomizeResonParams = (): Partial<ResonParams> => {
     const archetypes = ['wood', 'metal', 'glass'];
     const choice = choose(archetypes);
+    const percEnv = { ampEnv: { attack: 0.001, decay: rand(0.08, 0.2), sustain: 0, release: rand(0.05, 0.15) } };
     switch(choice) {
-        case 'wood': return { pitch: randInt(60, 84), structure: rand(70, 100), brightness: rand(4000, 9000), decay: rand(0.85, 0.95), material: rand(70, 100), exciter_type: 'impulse' };
-        case 'glass': return { pitch: randInt(72, 96), structure: rand(0, 20), brightness: rand(12000, 18000), decay: rand(0.96, 0.99), material: rand(20, 50), exciter_type: 'impulse' };
+        case 'wood': return { pitch: randInt(60, 84), structure: rand(70, 100), brightness: rand(4000, 9000), decay: rand(0.85, 0.95), material: rand(70, 100), exciter_type: 'impulse', ...percEnv };
+        case 'glass': return { pitch: randInt(72, 96), structure: rand(0, 20), brightness: rand(12000, 18000), decay: rand(0.96, 0.99), material: rand(20, 50), exciter_type: 'impulse', ...percEnv };
         default: // metal
-             return { pitch: randInt(48, 72), structure: rand(10, 40), brightness: rand(8000, 14000), decay: rand(0.98, 0.998), material: rand(0, 30), exciter_type: 'impulse' };
+             return { pitch: randInt(48, 72), structure: rand(10, 40), brightness: rand(8000, 14000), decay: rand(0.98, 0.998), material: rand(0, 30), exciter_type: 'impulse', ...percEnv };
     }
 };
 

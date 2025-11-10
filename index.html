@@ -170,6 +170,14 @@
           will-change: opacity, transform;
       }
 
+      @keyframes step-pop {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(0.92); }
+      }
+      .animate-step-pop {
+        animation: step-pop 0.15s ease-out;
+      }
+
       @keyframes heartbeat-glow-knob {
           from {
               box-shadow: inset 0 2px 4px var(--shadow-deep), 0 1px 1px var(--highlight-soft), 0 0 12px 2px var(--accent-color);

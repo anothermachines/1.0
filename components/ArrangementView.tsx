@@ -173,7 +173,7 @@ const ArrangementClipComponent: React.FC<{
 
                     const stepWidth = pixelsPerBeat / 4;
 
-                    if (stepWidth < 2) {
+                    if (stepWidth < 1) { // Hide if too small to render
                         return null;
                     }
 
@@ -183,9 +183,10 @@ const ArrangementClipComponent: React.FC<{
                             className="absolute bottom-0"
                             style={{
                                 left: `${i * stepWidth}px`,
-                                width: `${Math.max(1, stepWidth - 1)}px`, // 1px gap between steps
-                                height: `${15 + step.velocity * 85}%`, // Velocity affects height (from 15% to 100%)
-                                backgroundColor: 'rgba(0, 0, 0, 0.35)',
+                                width: `${Math.max(1, stepWidth - 1)}px`,
+                                height: `${step.velocity * 100}%`,
+                                backgroundColor: 'rgba(255, 255, 255, 0.6)',
+                                boxShadow: '0 0 2px rgba(0,0,0,0.5)',
                                 borderRadius: '1px 1px 0 0',
                             }}
                         />

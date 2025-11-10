@@ -42,6 +42,7 @@ interface StepButtonProps {
 const StepButton: React.FC<StepButtonProps> = React.memo(({
     trackId, stepIndex, patternLength, onClick, mapInfo, isDarkGroup, defaultNote, disabled = false
 }) => {
+    const [popAnimation, setPopAnimation] = useState('');
     // This granular selector makes StepButton self-sufficient for its dynamic data.
     // It only re-renders when its own step data changes, or when it becomes the current/p-locked step.
     const { step, isSelectedForPLock, isCurrent } = useStore(state => {
@@ -69,6 +70,7 @@ const StepButton: React.FC<StepButtonProps> = React.memo(({
     const isOutOfBounds = stepIndex >= patternLength;
 
     const handleMapClick = (e: React.MouseEvent<HTMLButtonElement> | React.TouchEvent<HTMLButtonElement>) => {
+        setPopAnimation('animate-step-pop');
         if (isLearning && mapInfo) {
             e.stopPropagation();
             mapTarget({ ...mapInfo, type: 'button' });
@@ -87,7 +89,8 @@ const StepButton: React.FC<StepButtonProps> = React.memo(({
     return (
         <button
             onClick={handleMapClick}
-            className={`relative w-full h-full rounded-md transition-all duration-150 select-none touch-manipulation ${isOutOfBounds ? 'opacity-30' : ''} ${isSelectedForPLock ? 'ring-2 ring-cyan-400 ring-inset' : ''} ${disabled ? 'cursor-not-allowed' : ''}`}
+            onAnimationEnd={() => setPopAnimation('')}
+            className={`relative w-full h-full rounded-md transition-all duration-150 select-none touch-manipulation ${isOutOfBounds ? 'opacity-30' : ''} ${isSelectedForPLock ? 'ring-2 ring-cyan-400 ring-inset' : ''} ${disabled ? 'cursor-not-allowed' : ''} ${popAnimation}`}
             aria-label={`Step ${stepIndex + 1}`}
             disabled={isOutOfBounds || disabled}
             title={hasPLocks ? "This step has parameter locks" : `Step ${stepIndex + 1}`}
@@ -238,7 +241,7 @@ const SequencerComponent: React.FC = () => {
         randomizeTrackPattern, startEuclideanMode, clearTrackPattern, 
         toggleCenterView, updateEuclidean, applyEuclidean, cancelEuclidean, setParam, 
         setTrackPan, setFxSend, setFxSendPLock, copyPattern, pastePattern, triggerViewerModeInteraction, 
-        setSequencerPage, currentPlayheadTime
+        setSequencerPage, currentPlayheadTime, inspireMe
     } = useStore(state => ({
         togglePLockMode: state.togglePLockMode,
         selectPattern: state.selectPattern,
@@ -260,6 +263,7 @@ const SequencerComponent: React.FC = () => {
         triggerViewerModeInteraction: state.triggerViewerModeInteraction,
         setSequencerPage: state.setSequencerPage,
         currentPlayheadTime: state.currentPlayheadTime,
+        inspireMe: state.inspireMe,
     }), shallow);
 
   const [isPatternSelectorOpen, setIsPatternSelectorOpen] = useState(false);
@@ -352,6 +356,15 @@ const SequencerComponent: React.FC = () => {
                         <path d="M7 18v-9"/>
                         <path d="M12 18v-9"/>
                         <path d="M17 18v-9"/>
+                    </svg>
+                </button>
+                <button onClick={inspireMe} title="Inspire Me" className="flex items-center justify-center px-2 py-1.5 rounded-sm bg-[var(--bg-control)] hover:bg-[var(--border-color)] border border-[var(--border-color)] transition-colors text-[var(--text-light)]">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 3L14.35 8.65L20 11L14.35 13.35L12 19L9.65 13.35L4 11L9.65 8.65L12 3Z" />
+                        <path d="M5 3L6.05 5.05" />
+                        <path d="M18.95 18.95L17.9 20.9" />
+                        <path d="M5 21L6.05 18.95" />
+                        <path d="M18.95 5.05L17.9 3.1" />
                     </svg>
                 </button>
                 <button onClick={() => randomizeTrackPattern(selectedTrackId)} title="Randomize Pattern" className="flex items-center justify-center px-2 py-1.5 rounded-sm bg-[var(--bg-control)] hover:bg-[var(--border-color)] border border-[var(--border-color)] transition-colors text-[var(--text-light)]">

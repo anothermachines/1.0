@@ -25,7 +25,7 @@ import FullscreenPrompt from './components/FullscreenPrompt';
 
 const AppLogo: React.FC = () => (
     <div className="flex items-center group">
-        <svg width="48" height="42" viewBox="0 0 52 50" fill="none" xmlns="http://www.w3.org/2000/svg" className="mr-3 flex-shrink-0">
+        <svg width="56" height="50" viewBox="0 0 52 50" fill="none" xmlns="http://www.w3.org/2000/svg" className="mr-3 flex-shrink-0">
             <defs>
                 <filter id="logoGlow" x="-50%" y="-50%" width="200%" height="200%">
                     <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
@@ -50,7 +50,7 @@ const AppLogo: React.FC = () => (
             </g>
         </svg>
          <div>
-            <h1 className="text-2xl font-bold uppercase tracking-tighter" style={{ textShadow: '0 0 10px rgba(255, 255, 255, 0.1)' }}>FM8/R</h1>
+            <h1 className="text-3xl font-bold uppercase tracking-tighter" style={{ textShadow: '0 0 10px rgba(255, 255, 255, 0.1)' }}>FM8/R</h1>
             <p className="text-[9px] uppercase tracking-widest text-neutral-400 -mt-1.5 font-mono">Another Groovebox</p>
         </div>
     </div>

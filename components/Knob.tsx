@@ -21,9 +21,10 @@ interface KnobProps {
   style?: React.CSSProperties;
   mapInfo?: Omit<MidiMapTarget, 'type'>;
   onDisabledClick?: () => void;
+  displayModulatedValue?: number;
 }
 
-const Knob: React.FC<KnobProps> = ({ label, value, min, max, step = 1, onChange, size = 50, unit = '', isPLocked = false, isAutomated = false, disabled = false, displayTransform, className = '', editable = true, animationClass, style, mapInfo, onDisabledClick }) => {
+const Knob: React.FC<KnobProps> = ({ label, value, min, max, step = 1, onChange, size = 50, unit = '', isPLocked = false, isAutomated = false, disabled = false, displayTransform, className = '', editable = true, animationClass, style, mapInfo, onDisabledClick, displayModulatedValue }) => {
   const { isLearning, learningTarget, mapTarget } = useMidiMapping();
   const isSelectedTarget = isLearning && learningTarget?.path === mapInfo?.path;
   
@@ -179,9 +180,14 @@ const Knob: React.FC<KnobProps> = ({ label, value, min, max, step = 1, onChange,
       }
   };
 
-  const progress = (Math.max(min, Math.min(max, value)) - min) / (max - min);
-  const rotation = -135 + progress * 270;
+  const getRotationForValue = (val: number) => {
+    const progress = (Math.max(min, Math.min(max, val)) - min) / (max - min);
+    return -135 + progress * 270;
+  }
   
+  const rotation = getRotationForValue(value);
+  const modulatedRotation = displayModulatedValue !== undefined ? getRotationForValue(displayModulatedValue) : undefined;
+
   const indicatorColor = isPLocked
     ? 'var(--plock-color)'
     : isAutomated
@@ -229,7 +235,22 @@ const Knob: React.FC<KnobProps> = ({ label, value, min, max, step = 1, onChange,
             boxShadow: '0 2px 5px rgba(0,0,0,0.5)'
           }}
         >
-           {/* Indicator */}
+          {/* Modulated Value Indicator */}
+          {modulatedRotation !== undefined && (
+            <div className="absolute inset-0" style={{ transform: `rotate(${modulatedRotation}deg)` }}>
+              <div 
+                  className="absolute w-[1px] rounded-full left-1/2 -translate-x-1/2" 
+                  style={{
+                      background: '#22d3ee', // cyan-400
+                      boxShadow: `0 0 4px 1.5px #22d3ee88`,
+                      top: '2%',
+                      height: '42%',
+                  }}
+              />
+          </div>
+          )}
+
+           {/* Main Indicator */}
           <div className="absolute inset-0" style={{ transform: `rotate(${rotation}deg)` }}>
               <div 
                   className="absolute w-0.5 rounded-full left-1/2 -translate-x-1/2" 

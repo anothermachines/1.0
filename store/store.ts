@@ -147,7 +147,7 @@ function scheduler() {
                     track = tracks.find(t => t.id === clip.trackId);
                 }
 
-                const isAudible = soloedTrackId === null ? !mutedTracks.includes(clip.trackId) : soloedTrackId === clip.trackId;
+                const isAudible = soloedTrackId === null ? !mutedTracks.includes(clip.trackId) : soloedTrackId === track.id;
 
                 if (track && isAudible) {
                     const clipStartSeconds = clip.startTime * secondsPerBeat;
@@ -319,6 +319,7 @@ interface AppActions {
     setPatternLength: (trackId: number, length: number) => void;
     selectPattern: (trackId: number, patternIndex: number, currentPlayheadTime: number) => void;
     randomizeTrackPattern: (trackId: number) => void;
+    inspireMe: () => void;
     randomizeInstrument: (trackId: number) => void;
     randomizeAllPatternsForTrack: (trackId: number) => void;
     randomizeAllPatternsForAllTracks: () => void;
@@ -661,13 +662,7 @@ export const useStore = create<AppState & AppActions>()(
                         });
                     }
                     
-                    const dontShowWelcome = localStorage.getItem('fm8r-hide-welcome') === 'true';
-                    const fullscreenPromptDismissed = localStorage.getItem('fm8r-fullscreen-prompt-dismissed') === 'true';
-
-                    set({ showWelcomeScreen: !dontShowWelcome });
-                    if (dontShowWelcome && !fullscreenPromptDismissed) {
-                        setTimeout(() => set({ showFullscreenPrompt: true }), 1500);
-                    }
+                    set({ showWelcomeScreen: true });
 
                     const params = new URLSearchParams(window.location.search);
                     if (params.get('spectator_mode') === 'true') {
@@ -688,13 +683,8 @@ export const useStore = create<AppState & AppActions>()(
                 handleResize();
             },
             hideWelcomeScreen: (dontShowAgain) => {
-                if (dontShowAgain) {
-                    localStorage.setItem('fm8r-hide-welcome', 'true');
-                }
                 set({ showWelcomeScreen: false });
-                if (!localStorage.getItem('fm8r-fullscreen-prompt-dismissed')) {
-                    setTimeout(() => set({ showFullscreenPrompt: true }), 1500);
-                }
+                setTimeout(() => set({ showFullscreenPrompt: true }), 1500);
             },
             toggleFullscreenPrompt: (show) => {
                 set({ showFullscreenPrompt: show ?? !get().showFullscreenPrompt });
@@ -1064,6 +1054,38 @@ export const useStore = create<AppState & AppActions>()(
                         track.patternLength = length;
                     }
                 });
+            },
+            inspireMe: () => {
+                set(state => {
+                    state.preset.tracks.forEach(track => {
+                        // Skip MIDI track
+                        if (track.type === 'midi') {
+                            track.patterns[track.activePatternIndex] = createEmptyPatterns()[0];
+                            return;
+                        };
+                        
+                        // 1. Generate new pattern
+                        const { pattern, length } = createTechnoPattern(track.type, track.defaultNote);
+                        track.patterns[track.activePatternIndex] = pattern;
+                        track.patternLength = length;
+
+                        // 2. Generate new sound
+                        let newParams: Partial<AllInstrumentParams> = {};
+                        switch (track.type) {
+                            case 'kick': newParams = randomizeKickParams(); break;
+                            case 'hat': newParams = randomizeHatParams(); break;
+                            case 'arcane': newParams = randomizeArcaneParams(); break;
+                            case 'ruin': newParams = randomizeRuinParams(); break;
+                            case 'artifice': newParams = randomizeArtificeParams(); break;
+                            case 'shift': newParams = randomizeShiftParams(); break;
+                            case 'reson': newParams = randomizeResonParams(); break;
+                            case 'alloy': newParams = randomizeAlloyParams(); break;
+                        }
+                        track.params = { ...track.params, ...newParams };
+                        track.loadedInstrumentPresetName = null;
+                    });
+                });
+                get().addNotification({ type: 'success', message: 'New idea generated!' });
             },
             randomizeInstrument: (trackId) => {
                 set(state => {
@@ -1836,7 +1858,7 @@ export const useStore = create<AppState & AppActions>()(
             exportFullBackup: (midiMappings) => {
                 const { presets, instrumentPresets, installedPacks, appearanceTheme, accentTheme, latencySetting, midiSyncSource, midiSyncOutput } = get();
                 const backup: FullBackup = {
-                    version: '1.0',
+                    version: '1.1',
                     presets,
                     instrumentPresets,
                     installedPacks,

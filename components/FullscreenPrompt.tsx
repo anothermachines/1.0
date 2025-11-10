@@ -5,7 +5,6 @@ const FullscreenPrompt: React.FC = () => {
     const toggleFullscreenPrompt = useStore(state => state.toggleFullscreenPrompt);
 
     const dismiss = useCallback(() => {
-        localStorage.setItem('fm8r-fullscreen-prompt-dismissed', 'true');
         toggleFullscreenPrompt(false);
     }, [toggleFullscreenPrompt]);
 

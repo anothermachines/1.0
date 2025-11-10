@@ -32,8 +32,20 @@ const PresetDisplay: React.FC<PresetDisplayProps> = ({
     triggerViewerModeInteraction: state.triggerViewerModeInteraction,
   }), shallow);
 
+  const [bpmAnimation, setBpmAnimation] = useState('');
+
   const handleBpmChange = useCallback((v: number) => setBpm(v), [setBpm]);
   const handleMasterVolumeChange = useCallback((v: number) => setMasterVolume(v), [setMasterVolume]);
+
+  useEffect(() => {
+    // Trigger animation on BPM change, but not on initial load
+    if (bpm > 0) {
+        setBpmAnimation('animate-heartbeat');
+        const timer = setTimeout(() => setBpmAnimation(''), 200); // Duration of heartbeat animation
+        return () => clearTimeout(timer);
+    }
+  }, [bpm]);
+
 
   return (
     <div className="flex items-center space-x-3 bg-gradient-to-b from-[var(--bg-panel-dark)] to-[var(--bg-chassis)] rounded-md p-2 border border-[var(--border-color-darker)] shadow-inner">
@@ -54,6 +66,7 @@ const PresetDisplay: React.FC<PresetDisplayProps> = ({
             step={1}
             onChange={handleBpmChange}
             size={46}
+            animationClass={bpmAnimation}
             mapInfo={{ path: 'preset.bpm', label: 'BPM' }}
             disabled={isSpectator}
             onDisabledClick={triggerViewerModeInteraction}
